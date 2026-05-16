@@ -45,6 +45,7 @@ class ExportSystemSummary:
     arcade_clones_removed: int = 0
     skipped_non_game: int = 0
     skipped_controls: int = 0
+    skipped_year: int = 0
     capped: int = 0
     no_target_alias: int = 0
 
@@ -267,6 +268,7 @@ def print_export_plan(plan: ExportPlan) -> None:
             str(summary.skipped_unidentified),
             str(summary.skipped_non_game),
             str(summary.skipped_controls),
+            str(summary.skipped_year),
             str(summary.capped),
             str(summary.duplicate_regions_removed),
             str(summary.arcade_clones_removed),
@@ -280,7 +282,7 @@ def print_export_plan(plan: ExportPlan) -> None:
         console.print(f"Target: [bold]{plan.target}[/bold]")
         console.print(f"Export root: [bold]{plan.export_root}[/bold]")
         table = Table(title="Export Plan")
-        for column in ("System", "Seen", "Selected", "Size", "Region", "Beta", "Proto", "Hack", "Rating", "Unidentified", "Non-game", "Controls", "Cap", "Dupes", "Clones"):
+        for column in ("System", "Seen", "Selected", "Size", "Region", "Beta", "Proto", "Hack", "Rating", "Unidentified", "Non-game", "Controls", "Year", "Cap", "Dupes", "Clones"):
             table.add_column(column)
         for row in rows:
             table.add_row(*row)
@@ -292,7 +294,7 @@ def print_export_plan(plan: ExportPlan) -> None:
     print(f"Profile: {plan.profile_name}")
     print(f"Target: {plan.target}")
     print(f"Export root: {plan.export_root}")
-    print("System | Seen | Selected | Size | Region | Beta | Proto | Hack | Rating | Unidentified | Non-game | Controls | Cap | Dupes | Clones")
+    print("System | Seen | Selected | Size | Region | Beta | Proto | Hack | Rating | Unidentified | Non-game | Controls | Year | Cap | Dupes | Clones")
     for row in rows:
         print(" | ".join(row))
     print(f"Planned hardlinks: {len(plan.items)}")
@@ -321,6 +323,19 @@ def _skip_reason(row, preferred_regions: list[str], selection: dict[str, object]
         return "hack"
     if row["is_translation"] and not bool(selection.get("include_translations", True)):
         return "translation"
+
+    # Year filter — applied when a release year can be determined from either
+    # ROMM metadata or (for arcade) the MAME machine record.  Games with no
+    # year data are never penalised.
+    year_from = selection.get("year_from")
+    year_to = selection.get("year_to")
+    if year_from is not None or year_to is not None:
+        game_year = _game_year(row)
+        if game_year is not None:
+            if year_from is not None and game_year < int(year_from):
+                return "year"
+            if year_to is not None and game_year > int(year_to):
+                return "year"
 
     # ROMM-based filters — only applied when a matching romm_roms record exists.
     # NULL fields mean no ROMM data for this file; those games are never penalised.
@@ -354,6 +369,30 @@ def _record_skip(summary: ExportSystemSummary, reason: str) -> None:
         summary.skipped_rating += 1
     elif reason == "unidentified":
         summary.skipped_unidentified += 1
+    elif reason == "year":
+        summary.skipped_year += 1
+
+
+def _game_year(row) -> int | None:
+    """Return the best available release year for a ROM row, or None.
+
+    Priority:
+      1. ROMM year (reliable integer from IGDB/ROMM metadata)
+      2. MAME year (arcade machines — stored as TEXT, may contain '?' markers
+         such as '1991?' or '19??'; partial years are ignored)
+
+    Returns None when no reliable year is available, so the caller can
+    skip the year filter rather than falsely excluding the game.
+    """
+    romm_year = row["romm_year"]
+    if romm_year and int(romm_year) > 0:
+        return int(romm_year)
+    mame_year = row["mame_year"]
+    if mame_year:
+        clean = str(mame_year).replace("?", "").strip()
+        if clean.isdigit() and len(clean) == 4:
+            return int(clean)
+    return None
 
 
 def _group_key(row, *, arcade_dedupe: bool) -> tuple[str, str | None]:

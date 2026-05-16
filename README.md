@@ -230,6 +230,8 @@ Profile `selection:` keys that drive export filtering:
 | `arcade_dedupe` | bool | `true` | Group MAME clones by parent — export one ROM per unique game |
 | `arcade_skip_non_playable` | bool | `true` | Skip BIOS chips, devices, and mechanical (AWP/fruit machine) ROMs |
 | `arcade_exclude_controls` | list | `[]` | Skip arcade games needing listed MAME control types (e.g. `[wheel, spinner, trackball, lightgun]`). Has no effect until `arcade-import` is run from a full `mame -listxml` source. |
+| `year_from` | int | *(off)* | Skip games released before this year. Games with no year data always pass. Can be overridden per-run with `--from YEAR`. |
+| `year_to` | int | *(off)* | Skip games released after this year. Games with no year data always pass. Can be overridden per-run with `--to YEAR`. |
 | `min_rating` | number | *(off)* | Skip ROMs with a real IGDB score below this value. Unrated ROMs (`total_rating = 0`) and ROMs with no ROMM record always pass. |
 | `identified_only` | bool | `false` | Skip ROMs that ROMM considers unidentified. ROMs with no ROMM record always pass. |
 
@@ -487,5 +489,4 @@ The recycle bin path is configured under `paths.recycle_bin` in `config.yaml` (d
 
 ## Not Implemented Yet
 
-- `max_games_per_system` cap counter in the export plan summary (silently drops games past the cap, no counter shown)
-- `arcade_exclude_controls` has no effect until `arcade-import` is run from a full `mame -listxml` source — current MAME XML in the DB is a validation file without `<input>` elements
+- `arcade_exclude_controls` has no effect until `arcade-import` is run from a full `mame -listxml` source — run `mame -listxml > mame_full.xml && python3 romcurator.py arcade-import --xml mame_full.xml --reset` to activate it

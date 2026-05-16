@@ -72,11 +72,11 @@ def main(argv: list[str] | None = None) -> int:
             if any(issue.level == "error" for issue in issues):
                 return 1
         elif args.command == "explain":
-            run_explain(config, args.name, systems=_parse_systems(args.systems))
+            run_explain(config, args.name, systems=_parse_systems(args.systems), year_from=args.year_from, year_to=args.year_to)
         elif args.command == "build":
-            run_build(config, args.name, systems=_parse_systems(args.systems), execute=args.execute, rebuild=args.rebuild, yes=args.yes)
+            run_build(config, args.name, systems=_parse_systems(args.systems), year_from=args.year_from, year_to=args.year_to, execute=args.execute, rebuild=args.rebuild, yes=args.yes)
         elif args.command == "sync":
-            run_sync(config, args.name, systems=_parse_systems(args.systems), execute=args.execute, prune=args.prune, yes=args.yes)
+            run_sync(config, args.name, systems=_parse_systems(args.systems), year_from=args.year_from, year_to=args.year_to, execute=args.execute, prune=args.prune, yes=args.yes)
         elif args.command == "profile-add":
             run_profile_modify(config, args.name, add=_parse_systems(args.systems) or [], remove=[])
         elif args.command == "profile-remove":
@@ -139,15 +139,21 @@ def build_parser() -> argparse.ArgumentParser:
     explain_parser = subparsers.add_parser("explain", help="Explain selected ROMs for a profile")
     explain_parser.add_argument("name", help="Profile name, for example r36s")
     explain_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only include these systems, comma-separated  e.g. gba,snes,nes")
+    explain_parser.add_argument("--from", dest="year_from", type=int, metavar="YEAR", help="Only include games released in this year or later")
+    explain_parser.add_argument("--to", dest="year_to", type=int, metavar="YEAR", help="Only include games released in this year or earlier")
     build_parser = subparsers.add_parser("build", help="Build hardlink export for a profile")
     build_parser.add_argument("name", help="Profile name, for example r36s")
     build_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only export these systems, comma-separated  e.g. gba,snes,nes")
+    build_parser.add_argument("--from", dest="year_from", type=int, metavar="YEAR", help="Only include games released in this year or later")
+    build_parser.add_argument("--to", dest="year_to", type=int, metavar="YEAR", help="Only include games released in this year or earlier")
     build_parser.add_argument("--execute", action="store_true", help="Create hardlinks instead of dry-running")
     build_parser.add_argument("--rebuild", action="store_true", help="Delete this profile export before building")
     build_parser.add_argument("--yes", action="store_true", help="Confirm destructive rebuild behavior")
     sync_parser = subparsers.add_parser("sync", help="Build export and optionally prune stale exported files")
     sync_parser.add_argument("name", help="Profile name, for example r36s")
     sync_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only sync these systems, comma-separated  e.g. gba,snes,nes")
+    sync_parser.add_argument("--from", dest="year_from", type=int, metavar="YEAR", help="Only include games released in this year or later")
+    sync_parser.add_argument("--to", dest="year_to", type=int, metavar="YEAR", help="Only include games released in this year or earlier")
     sync_parser.add_argument("--execute", action="store_true", help="Create hardlinks instead of dry-running")
     sync_parser.add_argument("--prune", action="store_true", help="Remove stale files from this profile export")
     sync_parser.add_argument("--yes", action="store_true", help="Confirm destructive prune behavior")
@@ -270,29 +276,29 @@ def run_profile_modify(config: dict[str, object], name: str, *, add: list[str], 
         print(f"Profile saved: {profile_path}")
 
 
-def run_explain(config: dict[str, object], name: str, *, systems: list[str] | None = None):
-    plan = _create_configured_export_plan(config, name, systems=systems)
+def run_explain(config: dict[str, object], name: str, *, systems: list[str] | None = None, year_from: int | None = None, year_to: int | None = None):
+    plan = _create_configured_export_plan(config, name, systems=systems, year_from=year_from, year_to=year_to)
     print_export_plan(plan)
     return plan
 
 
-def run_build(config: dict[str, object], name: str, *, systems: list[str] | None = None, execute: bool, rebuild: bool, yes: bool):
-    plan = _create_configured_export_plan(config, name, systems=systems)
+def run_build(config: dict[str, object], name: str, *, systems: list[str] | None = None, year_from: int | None = None, year_to: int | None = None, execute: bool, rebuild: bool, yes: bool):
+    plan = _create_configured_export_plan(config, name, systems=systems, year_from=year_from, year_to=year_to)
     print_export_plan(plan)
     result = execute_export_plan(plan, dry_run=not execute, rebuild=rebuild, yes=yes)
     print_export_result(result)
     return result
 
 
-def run_sync(config: dict[str, object], name: str, *, systems: list[str] | None = None, execute: bool, prune: bool, yes: bool):
-    plan = _create_configured_export_plan(config, name, systems=systems)
+def run_sync(config: dict[str, object], name: str, *, systems: list[str] | None = None, year_from: int | None = None, year_to: int | None = None, execute: bool, prune: bool, yes: bool):
+    plan = _create_configured_export_plan(config, name, systems=systems, year_from=year_from, year_to=year_to)
     print_export_plan(plan)
     result = execute_export_plan(plan, dry_run=not execute, prune=prune, yes=yes)
     print_export_result(result)
     return result
 
 
-def _create_configured_export_plan(config: dict[str, object], name: str, *, systems: list[str] | None = None):
+def _create_configured_export_plan(config: dict[str, object], name: str, *, systems: list[str] | None = None, year_from: int | None = None, year_to: int | None = None):
     paths = config.get("paths", {})
     if not isinstance(paths, dict):
         raise ValueError("Config key 'paths' must be a mapping")
@@ -316,10 +322,16 @@ def _create_configured_export_plan(config: dict[str, object], name: str, *, syst
     if errors:
         raise ValueError("; ".join(errors))
 
+    # Apply CLI year overrides on top of profile selection without mutating the
+    # cached profile dict (deepcopy already done in load_profiles).
+    profile = profiles[name]
+    if year_from is not None or year_to is not None:
+        profile = {**profile, "selection": {**(profile.get("selection") or {}), **({} if year_from is None else {"year_from": year_from}), **({} if year_to is None else {"year_to": year_to})}}
+
     return create_export_plan(
         _resolve_config_path(config, str(database_path)),
         name,
-        profiles[name],
+        profile,
         mappings,
         _resolve_config_path(config, str(exports_path)),
         roms_root=_resolve_config_path(config, str(roms_path)) if roms_path else None,

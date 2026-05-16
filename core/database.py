@@ -403,7 +403,8 @@ class InventoryDatabase:
                 mm.description    AS mame_description,
                 mm.sourcefile     AS mame_sourcefile,
                 mm.control_types  AS mame_control_types,
-                mm.players        AS mame_players
+                mm.players        AS mame_players,
+                mm.year           AS mame_year
             FROM roms
             LEFT JOIN romm_roms rr
                 ON rr.canonical_system = roms.system

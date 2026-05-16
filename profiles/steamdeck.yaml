@@ -71,5 +71,7 @@ selection:
   arcade_exclude_controls: [wheel, lightgun, pedal]
   # ROMM metadata filters — only applied to ROMs that have a romm-sync record.
   # Games with no ROMM data are never penalised by these filters.
+  # year_from: 1980    # only include games released from this year
+  # year_to: 2005      # only include games released up to this year
   # min_rating: 60        # skip games with a real IGDB score below this (0 = unrated, always passes)
   # identified_only: true # skip games ROMM considers unidentified
