@@ -33,7 +33,7 @@ hardlink export builds. It does not modify ROM files.
 Run a streaming filesystem scan of the configured ROM archive:
 
 ```bash
-python3 curator/romcurator.py inventory
+python3 romcurator.py inventory
 ```
 
 The scanner captures:
@@ -109,7 +109,7 @@ It extracts useful metadata such as:
 Generate inventory reports:
 
 ```bash
-python3 curator/romcurator.py report
+python3 romcurator.py report
 ```
 
 Reports include:
@@ -127,13 +127,13 @@ Reports include:
 System aliases live in:
 
 ```text
-curator/mappings/systems.yaml
+mappings/systems.yaml
 ```
 
 Print and validate the mapping matrix:
 
 ```bash
-python3 curator/romcurator.py mappings
+python3 romcurator.py mappings
 ```
 
 The matrix maps canonical ROM Curator names to target ecosystem folders:
@@ -144,33 +144,32 @@ The matrix maps canonical ROM Curator names to target ecosystem folders:
 - R36S/R39 Max
 - Batocera
 
-The R36S/R39 Max mapping has been expanded from `r36s_roms_structure.md`, with
-housekeeping folders intentionally excluded.
-
 ### Device Profiles
 
 Device profile rules live in:
 
 ```text
-curator/profiles/
+profiles/
 ```
 
 Current profiles:
 
-- `steamdeck.yaml`: high-performance EmuDeck profile
-- `r36s.yaml`: curated R36S/R39 Max profile with `max_games_per_system: 100`
-- `batocera.yaml`: broad Batocera profile
+- `batocera.yaml`: bartop arcade cabinet — i5-8500T, 1 stick, 12 buttons, wireless keyboard+trackpad
+- `steamdeck.yaml`: Steam Deck LCD — EmuDeck, dual analogue + trackpads
+- `r36s.yaml`: R36S handheld — 640×480, dual analogue, 100 games/system cap
+- `r39max.yaml`: R39 Max handheld — 720×720 square screen, dual analogue
+- `odroidgosuper.yaml`: Odroid Go Super — 854×480, dual analogue
 
 Print and validate all profiles:
 
 ```bash
-python3 curator/romcurator.py profiles
+python3 romcurator.py profiles
 ```
 
 Inspect one profile and its target folder aliases:
 
 ```bash
-python3 curator/romcurator.py profile r36s
+python3 romcurator.py profile r36s
 ```
 
 Profiles drive export planning and hardlink builds.
@@ -180,19 +179,19 @@ Profiles drive export planning and hardlink builds.
 Explain what a profile would export:
 
 ```bash
-python3 curator/romcurator.py explain r36s
+python3 romcurator.py explain r36s
 ```
 
 Dry-run an export build:
 
 ```bash
-python3 curator/romcurator.py build r36s
+python3 romcurator.py build r36s
 ```
 
 Create hardlinks:
 
 ```bash
-python3 curator/romcurator.py build r36s --execute
+python3 romcurator.py build r36s --execute
 ```
 
 Exports are written under:
@@ -228,6 +227,9 @@ Profile `selection:` keys that drive export filtering:
 | `include_proto` | bool | `false` | Include prototype ROMs |
 | `include_hacks` | bool | `false` | Include ROM hacks |
 | `include_translations` | bool | `true` | Include fan translations |
+| `arcade_dedupe` | bool | `true` | Group MAME clones by parent — export one ROM per unique game |
+| `arcade_skip_non_playable` | bool | `true` | Skip BIOS chips, devices, and mechanical (AWP/fruit machine) ROMs |
+| `arcade_exclude_controls` | list | `[]` | Skip arcade games needing listed MAME control types (e.g. `[wheel, spinner, trackball, lightgun]`). Has no effect until `arcade-import` is run from a full `mame -listxml` source. |
 | `min_rating` | number | *(off)* | Skip ROMs with a real IGDB score below this value. Unrated ROMs (`total_rating = 0`) and ROMs with no ROMM record always pass. |
 | `identified_only` | bool | `false` | Skip ROMs that ROMM considers unidentified. ROMs with no ROMM record always pass. |
 
@@ -253,15 +255,15 @@ of a multi-disc game are included rather than only the first one being picked.
 Fetch and cache ROMM metadata into `inventory.sqlite`:
 
 ```bash
-python3 curator/romcurator.py romm-sync
-python3 curator/romcurator.py romm-sync --reset  # wipe and re-sync
+python3 romcurator.py romm-sync
+python3 romcurator.py romm-sync --reset  # wipe and re-sync
 ```
 
 ROMM metadata is stored in a `romm_roms` table and joined to the `roms` table
 on `(canonical_system, filename)` at query time. ROMM is never queried during
 inventory scans or export builds — only when `romm-sync` is explicitly run.
 
-Requires `ROMM_TOKEN` in a `.env` file at `curator/.env` or the project root.
+Requires `ROMM_TOKEN` in a `.env` file at the project root.
 The ROMM URL is configured in `config.yaml` under `romm.url`.
 
 Cached fields per ROM:
@@ -277,9 +279,9 @@ Cached fields per ROM:
 Import MAME machine metadata and classify arcade ROMs by sub-system:
 
 ```bash
-python3 curator/romcurator.py arcade-import              # stream from installed mame binary
-python3 curator/romcurator.py arcade-import --xml /path/to/mame.xml   # use cached XML file
-python3 curator/romcurator.py arcade-import --reset      # wipe mame_machines before importing
+python3 romcurator.py arcade-import              # stream from installed mame binary
+python3 romcurator.py arcade-import --xml /path/to/mame.xml   # use cached XML file
+python3 romcurator.py arcade-import --reset      # wipe mame_machines before importing
 ```
 
 Generates a pre-computed `mame.xml` with:
@@ -312,34 +314,32 @@ Classification is stored in the `arcade_system` column of the `roms` table and t
 From the repository root:
 
 ```bash
-python3 curator/romcurator.py romm-sync
-python3 curator/romcurator.py romm-sync --reset
-python3 curator/romcurator.py inventory
-python3 curator/romcurator.py report
-python3 curator/romcurator.py arcade-analyze
-python3 curator/romcurator.py arcade-import
-python3 curator/romcurator.py arcade-import --xml /path/to/mame.xml
-python3 curator/romcurator.py mappings
-python3 curator/romcurator.py profiles
-python3 curator/romcurator.py profile r36s
-python3 curator/romcurator.py explain r36s
-python3 curator/romcurator.py build r36s
-python3 curator/romcurator.py build r36s --execute
-python3 curator/romcurator.py sync r36s --execute --prune --yes
-python3 curator/romcurator.py zip-roms
-python3 curator/romcurator.py zip-roms --system gba --execute
-python3 curator/romcurator.py dedup-roms
-python3 curator/romcurator.py dedup-roms --system snes --execute
+python3 romcurator.py inventory
+python3 romcurator.py report
+python3 romcurator.py arcade-analyze
+python3 romcurator.py arcade-import
+python3 romcurator.py arcade-import --xml /path/to/mame.xml
+python3 romcurator.py mappings
+python3 romcurator.py profiles
+python3 romcurator.py profile r36s
+python3 romcurator.py explain r36s
+python3 romcurator.py build r36s
+python3 romcurator.py build r36s --execute
+python3 romcurator.py sync r36s --execute --prune --yes
+python3 romcurator.py romm-sync
+python3 romcurator.py romm-sync --reset
+python3 romcurator.py zip-roms
+python3 romcurator.py zip-roms --system gba --execute
+python3 romcurator.py dedup-roms
+python3 romcurator.py dedup-roms --system snes --execute
 ```
 
-Useful overrides:
+Useful overrides (e.g. for testing against a small sample tree):
 
 ```bash
-python3 curator/romcurator.py --roms roms-test --database curator/inventory.sqlite inventory
-python3 curator/romcurator.py --database curator/inventory.sqlite report
-python3 curator/romcurator.py --mappings curator/mappings/systems.yaml mappings
-python3 curator/romcurator.py --profiles curator/profiles profiles
-python3 curator/romcurator.py --database curator/inventory.sqlite --exports exports explain r36s
+python3 romcurator.py --roms /path/to/roms-test --database /tmp/test.sqlite inventory
+python3 romcurator.py --database /tmp/test.sqlite report
+python3 romcurator.py --database /tmp/test.sqlite --exports /tmp/exports explain r36s
 ```
 
 ## Configuration
@@ -347,7 +347,7 @@ python3 curator/romcurator.py --database curator/inventory.sqlite --exports expo
 Default config lives at:
 
 ```text
-curator/config.yaml
+config.yaml
 ```
 
 Important keys:
@@ -395,7 +395,7 @@ Python 3.11+ is recommended.
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r curator/requirements.txt
+pip install -r requirements.txt
 ```
 
 Dependencies:
@@ -408,32 +408,35 @@ Dependencies:
 ## Project Layout
 
 ```text
-curator/
-├── romcurator.py
-├── config.yaml
+rom-curator/
+├── romcurator.py           ← entry point
+├── config.yaml             ← paths, scan settings, ROMM URL
 ├── requirements.txt
+├── .env.example            ← copy to .env, add ROMM_TOKEN
 ├── core/
-│   ├── arcade.py
-│   ├── database.py
-│   ├── exporter.py
-│   ├── inventory.py
-│   ├── mappings.py
-│   ├── parser.py
-│   ├── profiles.py
-│   ├── reporting.py
-│   ├── romm_sync.py
-│   └── scanner.py
+│   ├── arcade.py           ← MAME XML parser, arcade sub-system classifier
+│   ├── database.py         ← SQLite layer (roms, mame_machines, romm_roms)
+│   ├── exporter.py         ← export plan, hardlink execution, arcade dedup
+│   ├── inventory.py        ← scan orchestration
+│   ├── mappings.py         ← systems.yaml loader
+│   ├── parser.py           ← No-Intro/Redump filename parser
+│   ├── profiles.py         ← profile loader and screen-fit display
+│   ├── reporting.py        ← inventory and arcade reports
+│   ├── romm_sync.py        ← ROMM API sync
+│   └── scanner.py          ← streaming filesystem walker
 ├── tools/
-│   ├── zip_roms.py     ← zips uncompressed ROMs, moves originals to recycle bin
-│   └── dedup_roms.py   ← moves duplicate-region ROMs to recycle bin
+│   ├── zip_roms.py         ← compress uncompressed ROMs to zip
+│   └── dedup_roms.py       ← move duplicate-region ROMs to recycle bin
 ├── mappings/
-│   └── systems.yaml
+│   └── systems.yaml        ← canonical system → target folder matrix
 ├── profiles/
 │   ├── batocera.yaml
+│   ├── odroidgosuper.yaml
 │   ├── r36s.yaml
+│   ├── r39max.yaml
 │   └── steamdeck.yaml
-├── reports/
-└── cache/
+└── config/
+    └── excluded_extensions.yaml  ← non-ROM extensions skipped by scanner
 ```
 
 ### Archive Maintenance Tools
@@ -445,9 +448,9 @@ These commands modify the NAS source archive. They are **dry-run only** by defau
 Compress uncompressed single-file ROMs (.nes, .sfc, .gba, etc.) into individual .zip archives in place. The original is moved to the recycle bin after the zip is verified.
 
 ```bash
-python3 curator/romcurator.py zip-roms               # dry-run all systems
-python3 curator/romcurator.py zip-roms --system gba  # dry-run one system
-python3 curator/romcurator.py zip-roms --execute     # actually zip
+python3 romcurator.py zip-roms               # dry-run all systems
+python3 romcurator.py zip-roms --system gba  # dry-run one system
+python3 romcurator.py zip-roms --execute     # actually zip
 ```
 
 CD-ROM formats (.bin/.cue, .iso, .img) are intentionally skipped — they involve companion files and need manual handling. After execution, re-run `inventory` to update the database.
@@ -457,9 +460,9 @@ CD-ROM formats (.bin/.cue, .iso, .img) are intentionally skipped — they involv
 Identify duplicate ROMs (same title, multiple regions or variants) using inventory database metadata, and move the lower-priority copies to the recycle bin.
 
 ```bash
-python3 curator/romcurator.py dedup-roms                             # dry-run all systems
-python3 curator/romcurator.py dedup-roms --system snes               # dry-run one system
-python3 curator/romcurator.py dedup-roms --preferred-regions USA Europe Japan --execute
+python3 romcurator.py dedup-roms                             # dry-run all systems
+python3 romcurator.py dedup-roms --system snes               # dry-run one system
+python3 romcurator.py dedup-roms --preferred-regions USA Europe Japan --execute
 ```
 
 Priority ordering (highest wins):
@@ -484,17 +487,5 @@ The recycle bin path is configured under `paths.recycle_bin` in `config.yaml` (d
 
 ## Not Implemented Yet
 
-These are planned but intentionally not active yet:
-
-- `max_games_per_system` cap counter in export plan summary (silently drops games, no counter shown)
-
-## Documentation Maintenance
-
-Update this README whenever new user-visible functionality is added, changed,
-or removed. In practice, each implementation step should update:
-
-- commands
-- config keys
-- generated files or database tables
-- safety behavior
-- implemented vs planned feature lists
+- `max_games_per_system` cap counter in the export plan summary (silently drops games past the cap, no counter shown)
+- `arcade_exclude_controls` has no effect until `arcade-import` is run from a full `mame -listxml` source — current MAME XML in the DB is a validation file without `<input>` elements
