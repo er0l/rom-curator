@@ -45,6 +45,7 @@ class ExportSystemSummary:
     arcade_clones_removed: int = 0
     skipped_non_game: int = 0
     skipped_controls: int = 0
+    capped: int = 0
     no_target_alias: int = 0
 
 
@@ -155,6 +156,7 @@ def create_export_plan(
                 chosen = _choose_preferred(candidates, preferred_regions)
             summary.duplicate_regions_removed += max(0, len(candidates) - 1) if not (is_arcade_system and arcade_dedupe) else 0
             if isinstance(max_games, int) and selected_for_system >= max_games:
+                summary.capped += 1
                 continue
 
             # Prefer roms_root + relative_path so --roms override takes effect;
@@ -265,6 +267,7 @@ def print_export_plan(plan: ExportPlan) -> None:
             str(summary.skipped_unidentified),
             str(summary.skipped_non_game),
             str(summary.skipped_controls),
+            str(summary.capped),
             str(summary.duplicate_regions_removed),
             str(summary.arcade_clones_removed),
         )
@@ -277,7 +280,7 @@ def print_export_plan(plan: ExportPlan) -> None:
         console.print(f"Target: [bold]{plan.target}[/bold]")
         console.print(f"Export root: [bold]{plan.export_root}[/bold]")
         table = Table(title="Export Plan")
-        for column in ("System", "Seen", "Selected", "Size", "Region", "Beta", "Proto", "Hack", "Rating", "Unidentified", "Non-game", "Controls", "Dupes", "Clones"):
+        for column in ("System", "Seen", "Selected", "Size", "Region", "Beta", "Proto", "Hack", "Rating", "Unidentified", "Non-game", "Controls", "Cap", "Dupes", "Clones"):
             table.add_column(column)
         for row in rows:
             table.add_row(*row)
@@ -289,7 +292,7 @@ def print_export_plan(plan: ExportPlan) -> None:
     print(f"Profile: {plan.profile_name}")
     print(f"Target: {plan.target}")
     print(f"Export root: {plan.export_root}")
-    print("System | Seen | Selected | Size | Region | Beta | Proto | Hack | Rating | Unidentified | Non-game | Controls | Dupes | Clones")
+    print("System | Seen | Selected | Size | Region | Beta | Proto | Hack | Rating | Unidentified | Non-game | Controls | Cap | Dupes | Clones")
     for row in rows:
         print(" | ".join(row))
     print(f"Planned hardlinks: {len(plan.items)}")
