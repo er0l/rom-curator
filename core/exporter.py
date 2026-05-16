@@ -108,10 +108,16 @@ def create_export_plan(
         db.initialize()
         for row in db.iter_roms_by_systems(systems):
             # For arcade ROMs with a classified sub-system, route to that sub-system
-            # if it's in the profile; otherwise keep them in 'arcade'.
+            # if it's in the profile; otherwise fall back to 'arcade'.
+            # Example: arcade_system='mame' has no standalone canonical system entry
+            # in systems.yaml, so those ROMs fall back to the 'arcade' canonical system
+            # and are exported to whatever folder 'arcade' maps to (e.g. 'mame' in Batocera).
             effective = _effective_system(row)
             if effective not in systems_set:
-                continue
+                if row["system"] == "arcade" and "arcade" in systems_set:
+                    effective = "arcade"
+                else:
+                    continue
             summary = plan.summaries.setdefault(effective, ExportSystemSummary())
             summary.seen += 1
             group_key = _group_key(row, arcade_dedupe=arcade_dedupe)

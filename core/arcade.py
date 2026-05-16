@@ -247,10 +247,13 @@ def _parse_and_import(
         nonlocal imported
         for event, elem in iterparse(source, events=["end"]):
             if elem.tag != "machine":
-                elem.clear()
+                # Do NOT clear child elements here — their text is needed when
+                # the parent <machine> end event fires.  Clearing a <year> or
+                # <manufacturer> element before the machine is processed would
+                # destroy its text content.
                 continue
             machine = parse_machine(elem)
-            elem.clear()
+            elem.clear()  # Free memory only after the machine has been parsed
             db.upsert_mame_machine(machine, imported_at)
             systems[machine.arcade_system] = systems.get(machine.arcade_system, 0) + 1
             imported += 1
@@ -272,7 +275,6 @@ def _parse_and_import(
                 nonlocal imported
                 for event, elem in iterparse(source, events=["end"]):
                     if elem.tag != "machine":
-                        elem.clear()
                         continue
                     machine = parse_machine(elem)
                     elem.clear()
