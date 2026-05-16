@@ -1,0 +1,24 @@
+paths:
+  roms: /mnt/storage/roms
+  database: /mnt/storage/roms/.curator/inventory.sqlite
+  exports: /mnt/storage/roms/.exports
+  reports: /mnt/storage/roms/.curator/reports
+  recycle_bin: /mnt/storage/recycle_bin
+  mappings: mappings/systems.yaml
+  profiles: profiles
+
+scan:
+  incremental: true
+  ignore_hidden: true
+  follow_symlinks: false
+  excluded_extensions: config/excluded_extensions.yaml
+
+parsing:
+  detect_regions: true
+  detect_revision: true
+  detect_tags: true
+
+# ROMM integration — token must be set in .env as ROMM_TOKEN (never in this file)
+romm:
+  url: https://your-romm-instance.example.com
+  page_size: 200

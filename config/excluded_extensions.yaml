@@ -1,0 +1,80 @@
+# Non-ROM file extensions excluded from inventory scanning.
+#
+# Files with these extensions are silently skipped and never stored in the
+# database. Add extensions WITHOUT the leading dot ("png" not ".png").
+# All matching is case-insensitive.
+#
+# To disable an entire category, comment it out or set it to [].
+# To disable all exclusions, delete the scan.excluded_extensions entry
+# from config.yaml.
+
+# ── Artwork & screenshots bundled alongside ROMs ───────────────────────────
+images:
+  - png
+  - jpg
+  - jpeg
+  - gif
+  - bmp
+  - tga
+  - webp
+  - svg
+  - ico
+  - pcx   # old image format common in DOS game directories
+  - pbm   # portable bitmap
+
+# ── Promotional / trailer video (non-engine formats) ───────────────────────
+# Note: engine-specific video formats (bik, bk2, smk, san, dxa) are NOT
+# listed here because they are integral game-data files, not standalone media.
+video:
+  - mp4
+  - avi
+  - mkv
+  - mov
+  - wmv
+
+# ── Standalone audio tracks ────────────────────────────────────────────────
+# Note: game-engine audio data files (mus, ogg inside PAK/ZIP archives) are
+# kept; only top-level media files are excluded.
+audio:
+  - mp3
+  - wav
+  - ogg
+  - flac
+  - m4a
+  - m4b   # audiobook/audio
+  - aac
+  - wma
+
+# ── Documentation and readmes ──────────────────────────────────────────────
+documents:
+  - txt
+  - pdf
+  - nfo
+  - html
+  - htm
+
+# ── Configuration and metadata sidecar files ───────────────────────────────
+metadata:
+  - ini
+  - cfg
+  - log
+  - xml   # MAME lists, playlist files — remove if your setup uses XML ROMs
+  - json
+  - sfv   # checksum verification
+  - md5
+  - sha1
+
+# ── Windows system files (not game executables) ────────────────────────────
+system:
+  - dll
+  - fon
+
+# ── Game-specific data archives (not standalone ROMs) ─────────────────────
+# These are internal engine files that accompany the actual game entry.
+# Comment out any extension that your collection uses as the primary ROM file.
+data_archives:
+  - xarc  # The Book of Unwritten Tales and similar adventure game engines
+
+# ── Custom exclusions ──────────────────────────────────────────────────────
+# Add your own extensions here.
+custom: []

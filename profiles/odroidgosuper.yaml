@@ -1,0 +1,85 @@
+name: odroidgosuper
+target: r36s
+description: Curated low-power handheld profile for Odroid Go Super (854x480, 5.0").
+
+screen:
+  width: 854
+  height: 480
+  size_inches: 5.0
+
+# Input hardware available on this device.
+controls:
+  joystick: true
+  analogue_sticks: 2
+  buttons: 6
+  mouse: false
+  keyboard: false
+  spinner: false
+  trackball: false
+  lightgun: false
+  wheel: false
+
+include_systems:
+  - arcade
+  - c64
+  - cps1
+  - cps2
+  - cps3
+  - dreamcast
+  - gamegear
+  - gb
+  - gba
+  - gbc
+  - lynx
+  - mastersystem
+  - megacd
+  - megadrive
+  - n64
+  - nds
+  - neogeo
+  - neogeocd
+  - nes
+  - ngp
+  - ngpc
+  - pcengine
+  - pcenginecd
+  - psp
+  - psx
+  - sega32x
+  - snes
+  - supergrafx
+  - virtualboy
+  - wonderswan
+  - wonderswancolor
+  - zxspectrum
+
+exclude_systems:
+  - gamecube
+  - ps3
+  - psvita
+  - switch
+  - wii
+  - wiiu
+  - windows
+  - xbox
+
+max_games_per_system: 100
+
+preferred_region:
+  - USA
+  - Europe
+  - World
+  - Japan
+
+selection:
+  include_beta: false
+  include_proto: false
+  include_hacks: false
+  include_translations: true
+  arcade_dedupe: true
+  arcade_skip_non_playable: true
+  arcade_exclude_controls: [wheel, spinner, trackball, lightgun, mouse, pedal]
+  # ROMM metadata filters — only applied to ROMs that have a romm-sync record.
+  # Games with no ROMM data are never penalised by these filters.
+  # min_rating: 60        # skip games with a real IGDB score below this (0 = unrated, always passes)
+  # identified_only: true # skip games ROMM considers unidentified

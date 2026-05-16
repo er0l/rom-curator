@@ -1,0 +1,65 @@
+name: batocera
+target: batocera
+description: Batocera bartop — i5-8500T / 32 GB, 10" screen (1366x768), wireless keyboard+trackpad.
+
+screen:
+  width: 1366
+  height: 768
+  size_inches: 10.0
+
+hardware:
+  cpu: Intel i5-8500T
+  ram_gb: 32
+
+# Input hardware available on this device.
+# Used to filter arcade games requiring peripherals not present.
+controls:
+  joystick: true          # 1× Sanwa JLF 8-way stick
+  analogue_sticks: 0      # no analogue sticks
+  buttons: 12             # 12 action buttons (6-button layout × 2 sides)
+  mouse: true             # wireless keyboard's integrated trackpad
+  keyboard: true          # wireless keyboard — enables DOS, ScummVM, text-adventure games
+  spinner: false
+  trackball: false        # trackpad is not precise enough for trackball arcade games
+  lightgun: false
+  wheel: false
+
+include_systems: all
+exclude_systems:
+  - alg
+  - android
+  - capcom
+  - freej2me
+  - j2me
+  - odyssey
+  - pc
+  - pgm2
+  - wolf
+
+preferred_region:
+  - USA
+  - Europe
+  - World
+  - Japan
+
+selection:
+  include_beta: false
+  include_proto: false
+  include_hacks: true
+  include_translations: true
+  arcade_dedupe: true
+  arcade_skip_non_playable: true
+  # Exclude arcade games requiring peripherals this bartop does not have.
+  # wheel     — steering wheel (Out Run, Pole Position, Daytona)
+  # spinner   — spinner / dial (Tempest, Tron, Arkanoid cocktail)
+  # trackball — physical trackball (Centipede, Missile Command, Golden Tee)
+  #             NOTE: mouse is NOT excluded — the wireless keyboard trackpad
+  #             is good enough for arcade mouse-cabinet games.
+  # lightgun  — light gun (Area 51, Point Blank) — requires real IR hardware
+  # pedal     — foot pedal (racing / driving games)
+  # doublejoy is OK — dual-stick games work with stick + buttons (Robotron-style)
+  arcade_exclude_controls: [wheel, spinner, trackball, lightgun, pedal]
+  # ROMM metadata filters — only applied to ROMs that have a romm-sync record.
+  # Games with no ROMM data are never penalised by these filters.
+  # min_rating: 60        # skip games with a real IGDB score below this (0 = unrated, always passes)
+  # identified_only: true # skip games ROMM considers unidentified

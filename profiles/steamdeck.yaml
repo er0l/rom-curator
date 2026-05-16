@@ -1,0 +1,75 @@
+name: steamdeck
+target: emudeck
+description: Steam Deck LCD / EmuDeck — Zen 2 4c/8t, 16 GB, 7" screen (1280x800).
+
+screen:
+  width: 1280
+  height: 800
+  size_inches: 7.0
+
+hardware:
+  cpu: AMD Zen 2 (4c/8t, 2.4-3.5 GHz)
+  ram_gb: 16
+
+# Input hardware available on this device.
+# The Steam Deck's dual trackpads emulate trackball, spinner, and mouse,
+# opening up a class of arcade games unavailable on pure stick-based devices.
+controls:
+  joystick: true
+  analogue_sticks: 2
+  buttons: 8              # A B X Y + L R + grip buttons
+  mouse: true             # trackpads act as mouse/pointer
+  keyboard: false         # no physical keyboard (virtual on-screen via Steam)
+  spinner: true           # trackpad circular gesture → spinner
+  trackball: true         # trackpad → trackball emulation
+  lightgun: false         # requires real CRT / IR pointing
+  wheel: false            # no steering wheel
+
+include_systems:
+  - arcade
+  - atomiswave
+  - dreamcast
+  - gamecube
+  - gba
+  - gbc
+  - gb
+  - megacd
+  - megadrive
+  - n64
+  - nds
+  - neogeo
+  - nes
+  - pcengine
+  - pcenginecd
+  - ps2
+  - ps3
+  - psp
+  - psx
+  - saturn
+  - sega32x
+  - snes
+  - switch
+  - wii
+  - wiiu
+
+exclude_systems: []
+
+preferred_region:
+  - USA
+  - Europe
+  - World
+
+selection:
+  include_beta: false
+  include_proto: false
+  include_hacks: false
+  include_translations: true
+  arcade_dedupe: true
+  arcade_skip_non_playable: true
+  # Steam Deck trackpads cover spinner/trackball/mouse; lightgun and wheel
+  # are the only things genuinely unplayable without specialist hardware.
+  arcade_exclude_controls: [wheel, lightgun, pedal]
+  # ROMM metadata filters — only applied to ROMs that have a romm-sync record.
+  # Games with no ROMM data are never penalised by these filters.
+  # min_rating: 60        # skip games with a real IGDB score below this (0 = unrated, always passes)
+  # identified_only: true # skip games ROMM considers unidentified
