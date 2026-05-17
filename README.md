@@ -36,6 +36,17 @@ Run a streaming filesystem scan of the configured ROM archive:
 python3 romcurator.py inventory
 ```
 
+Scope the scan to one or more system folders to pick up changes quickly
+without walking the entire archive:
+
+```bash
+python3 romcurator.py inventory --systems switch
+python3 romcurator.py inventory --systems gba,nes,snes
+```
+
+When `--systems` is used, stale-row removal is also scoped to those folders
+so the rest of the database is never touched.
+
 The scanner captures:
 
 - system from the top-level folder
@@ -112,15 +123,26 @@ Generate inventory reports:
 python3 romcurator.py report
 ```
 
+Scope a report to one or more systems:
+
+```bash
+python3 romcurator.py report --systems switch
+python3 romcurator.py report --systems switch,ps3
+```
+
 Reports include:
 
-- total files
+- total files / games
 - total size
-- systems by size
+- systems by size (shows game count for folder-based systems, file count otherwise)
 - extension breakdown
 - largest ROMs
 - region breakdown
 - possible duplicates
+
+Scoped reports have no row-count limit, drop the redundant Systems by Size
+table when only one system is requested, and are saved with the system
+name(s) in the filename.
 
 ### System Mapping Matrix
 
@@ -143,6 +165,21 @@ The matrix maps canonical ROM Curator names to target ecosystem folders:
 - EmuDeck
 - R36S/R39 Max
 - Batocera
+
+#### Folder-based systems
+
+Some systems store each game as a subfolder containing multiple files
+(e.g. ScummVM data files, DOS games, Switch titles with update packages).
+Two flags control how these are handled:
+
+| Flag | Systems | Effect |
+|------|---------|--------|
+| `folder_based: true` | scummvm, dos, windows, megacd, switch | Game count uses unique subfolders instead of raw file count; exporter exports all files in a subfolder as one unit |
+| `subfolder_exclude: true` | scummvm, dos, windows, megacd | Subfolder files are untagged game data — excluded from region breakdown and duplicate detection |
+
+Switch uses `folder_based` only (not `subfolder_exclude`) because its
+depth-3 files are the actual ROM with proper No-Intro naming (including
+region tags). Only depth-4+ files (`GameName/updates/`) are excluded.
 
 ### Device Profiles
 
@@ -317,7 +354,11 @@ From the repository root:
 
 ```bash
 python3 romcurator.py inventory
+python3 romcurator.py inventory --systems switch
+python3 romcurator.py inventory --systems gba,nes,snes
 python3 romcurator.py report
+python3 romcurator.py report --systems switch
+python3 romcurator.py report --systems switch,ps3
 python3 romcurator.py arcade-analyze
 python3 romcurator.py arcade-import
 python3 romcurator.py arcade-import --xml /path/to/mame.xml
@@ -473,8 +514,11 @@ Priority ordering (highest wins):
 3. Not-proto > proto
 4. Not-hack > hack
 5. Compressed format (.zip > .7z > .chd > .cso > .pbp > .iso > .bin > .img > raw)
-   Note: `.cue`, `.gdi`, `.sub`, `.sbi`, `.m3u` companion files are never considered duplicates
 6. Filename alphabetical
+
+Files that are never considered duplicates:
+- `.cue`, `.gdi`, `.sub`, `.sbi`, `.m3u` — companion/cuesheet files that must travel with their primary disc image
+- Files inside game subfolders of `folder_based` systems (e.g. ScummVM data files, megacd audio tracks, switch update packages)
 
 Run `inventory` to rebuild the database after execution.
 
