@@ -96,6 +96,10 @@ def main(argv: list[str] | None = None) -> int:
             regions = args.preferred_regions or None
             mappings = _load_configured_mappings(config)
             run_dedup_roms(config, mappings=mappings, system=args.system, preferred_regions=regions, execute=args.execute)
+        elif args.command == "clean-media":
+            from tools.clean_media import run_clean_media
+            media_folders = _parse_systems(args.media_folders)  # reuse comma-split helper
+            run_clean_media(config, systems=_parse_systems(args.systems), media_folders=media_folders, execute=args.execute)
         else:
             parser.error(f"Unknown command: {args.command}")
     except Exception as exc:
@@ -175,6 +179,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Region priority, highest first  (default: USA Europe Japan)",
     )
     dedup_parser.add_argument("--execute", action="store_true", help="Actually move files  (default: dry run)")
+    clean_media_parser = subparsers.add_parser("clean-media", help="Remove orphaned media files (images, videos, boxart, etc.) from the ROM archive")
+    clean_media_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only check these systems, comma-separated  (default: all)")
+    clean_media_parser.add_argument("--media-folders", metavar="FOLDER,...", help="Media subfolder names to check, comma-separated  (default: images,videos,snap,boxart,wheel,...)")
+    clean_media_parser.add_argument("--execute", action="store_true", help="Actually move orphaned files to recycle bin  (default: dry run)")
     return parser
 
 
