@@ -27,6 +27,17 @@ except ImportError:  # pragma: no cover
 
 DEFAULT_PREFERRED_REGIONS = ["USA", "Europe", "Japan"]
 
+# Companion / cuesheet files that describe or accompany a primary disc image.
+# These are never independent games and must never be treated as duplicates or
+# as candidates in a dedup group — they travel with their primary file.
+_COMPANION_EXTENSIONS: frozenset[str] = frozenset({
+    ".cue",   # CD cuesheet (companion to .bin)
+    ".gdi",   # Dreamcast cuesheet (companion to .bin track files)
+    ".sub",   # subchannel data
+    ".sbi",   # subchannel information
+    ".m3u",   # multi-disc playlist
+})
+
 # Prefer compressed / space-efficient formats over raw ROM files when
 # region/flags are equal.  Lower rank = higher preference.
 #
@@ -35,9 +46,10 @@ DEFAULT_PREFERRED_REGIONS = ["USA", "Europe", "Japan"]
 #   .cso         — compressed ISO for PSP (smaller than raw ISO)
 #   .pbp         — Sony encrypted archive for PSX-on-PSP
 #   .iso         — uncompressed disc image (beats multi-file bin/cue)
-#   .bin / .cue  — raw disc dump; .cue is the cuesheet, .bin is the data
+#   .bin         — raw disc data track
 #   .img         — raw sector image
 #   everything else (raw cartridge dumps, etc.) → rank 99
+#   (.cue / .gdi and other companion files are excluded before ranking)
 _FORMAT_RANK: dict[str, int] = {
     ".zip": 0,
     ".7z":  1,
@@ -46,8 +58,7 @@ _FORMAT_RANK: dict[str, int] = {
     ".pbp": 4,
     ".iso": 5,
     ".bin": 6,
-    ".cue": 7,
-    ".img": 8,
+    ".img": 7,
 }
 
 
@@ -160,9 +171,13 @@ def _build_plan(
                 "is_beta, is_proto, is_hack FROM roms ORDER BY system, title, filename"
             )
 
-    # Group by (system, title, disc) — same key the exporter uses
+    # Group by (system, title, disc) — same key the exporter uses.
+    # Companion files (.cue, .gdi, etc.) are skipped — they are not independent
+    # games and must never be recycled or chosen as a dedup winner.
     groups: dict[tuple[str, str, str | None], list] = {}
     for row in rows:
+        if Path(str(row["filename"])).suffix.lower() in _COMPANION_EXTENSIONS:
+            continue
         key = (str(row["system"]), str(row["title"]), row["disc"])
         groups.setdefault(key, []).append(row)
 

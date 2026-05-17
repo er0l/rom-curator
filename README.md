@@ -472,7 +472,8 @@ Priority ordering (highest wins):
 2. Not-beta > beta
 3. Not-proto > proto
 4. Not-hack > hack
-5. Compressed format (.zip > .7z > .chd > .cso > .pbp > .iso > .bin > .cue > .img > raw)
+5. Compressed format (.zip > .7z > .chd > .cso > .pbp > .iso > .bin > .img > raw)
+   Note: `.cue`, `.gdi`, `.sub`, `.sbi`, `.m3u` companion files are never considered duplicates
 6. Filename alphabetical
 
 Run `inventory` to rebuild the database after execution.
