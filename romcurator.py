@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "inventory":
             run_inventory(config)
         elif args.command == "report":
-            run_report(config)
+            run_report(config, mappings=_load_configured_mappings(config))
         elif args.command == "arcade-analyze":
             run_arcade_analyze(config)
         elif args.command == "mappings":
