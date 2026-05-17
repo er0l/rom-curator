@@ -27,8 +27,28 @@ except ImportError:  # pragma: no cover
 
 DEFAULT_PREFERRED_REGIONS = ["USA", "Europe", "Japan"]
 
-# Prefer already-compressed formats over raw ROM files when region/flags are equal.
-_FORMAT_RANK: dict[str, int] = {".zip": 0, ".7z": 1, ".chd": 2}
+# Prefer compressed / space-efficient formats over raw ROM files when
+# region/flags are equal.  Lower rank = higher preference.
+#
+#   .zip / .7z   — universal compressed archives (most systems)
+#   .chd         — compressed disc image (arcade, CD-based systems)
+#   .cso         — compressed ISO for PSP (smaller than raw ISO)
+#   .pbp         — Sony encrypted archive for PSX-on-PSP
+#   .iso         — uncompressed disc image (beats multi-file bin/cue)
+#   .bin / .cue  — raw disc dump; .cue is the cuesheet, .bin is the data
+#   .img         — raw sector image
+#   everything else (raw cartridge dumps, etc.) → rank 99
+_FORMAT_RANK: dict[str, int] = {
+    ".zip": 0,
+    ".7z":  1,
+    ".chd": 2,
+    ".cso": 3,
+    ".pbp": 4,
+    ".iso": 5,
+    ".bin": 6,
+    ".cue": 7,
+    ".img": 8,
+}
 
 
 @dataclass(frozen=True)
