@@ -375,6 +375,9 @@ python3 romcurator.py zip-roms
 python3 romcurator.py zip-roms --system gba --execute
 python3 romcurator.py dedup-roms
 python3 romcurator.py dedup-roms --system snes --execute
+python3 romcurator.py clean-media
+python3 romcurator.py clean-media --systems snes --execute
+python3 romcurator.py clean-media --systems snes,nes --media-folders boxart,wheel --execute
 ```
 
 Useful overrides (e.g. for testing against a small sample tree):
@@ -469,7 +472,8 @@ rom-curator/
 │   └── scanner.py          ← streaming filesystem walker
 ├── tools/
 │   ├── zip_roms.py         ← compress uncompressed ROMs to zip
-│   └── dedup_roms.py       ← move duplicate-region ROMs to recycle bin
+│   ├── dedup_roms.py       ← move duplicate-region ROMs to recycle bin
+│   └── clean_media.py      ← remove orphaned media/image/video files
 ├── mappings/
 │   └── systems.yaml        ← canonical system → target folder matrix
 ├── profiles/
@@ -522,9 +526,38 @@ Files that are never considered duplicates:
 
 Run `inventory` to rebuild the database after execution.
 
+#### clean-media
+
+Remove orphaned media files — images, videos, boxart, wheel art, and other
+scraper assets — whose corresponding ROM no longer exists in the inventory.
+
+```bash
+python3 romcurator.py clean-media                            # dry-run all systems
+python3 romcurator.py clean-media --systems snes             # dry-run one system
+python3 romcurator.py clean-media --systems snes,nes --execute
+python3 romcurator.py clean-media --media-folders boxart,wheel --execute
+```
+
+Scanned subfolders (default, all configurable via `--media-folders`):
+`images`, `videos`, `snap`, `boxart`, `wheel`, `cartart`, `mixart`,
+`manuals`, `logos`, `fanarts`, `backcovers`, `screenshots`, `marquees`, `media`
+
+Two naming conventions are matched automatically:
+
+| Convention | Example | Matched against |
+|---|---|---|
+| Full ROM stem | `7th Saga, The (USA).png` | ROM filename stem |
+| Scraper suffix | `7th Saga, The-image.png` | Parsed ROM title after stripping `-image`/`-thumb`/`-marquee`/`-video`/… |
+
+System files (`Thumbs.db`, `.DS_Store`, `gamelist.xml`, etc.) are always skipped.
+
+Run `inventory --systems <system>` first to ensure the database is up to date
+before executing, so recently added ROMs are not incorrectly flagged.
+
 #### Recycle bin
 
-Both tools move files to the recycle bin under their original relative path:
+All three archive maintenance tools move files to the recycle bin under their
+original relative path:
 
 ```
 <recycle_bin>/roms/<system>/<filename>
