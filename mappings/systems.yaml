@@ -741,6 +741,7 @@ switch:
   r36s: []
   batocera: [switch]
   display: {aspect: "16:9", orientation: landscape}
+  folder_based: true
 
 virtualboy:
   nas: virtualboy
