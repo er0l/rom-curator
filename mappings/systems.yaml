@@ -348,6 +348,7 @@ mastersystem:
   display: {aspect: "4:3", orientation: landscape}
 
 megacd:
+  folder_based: true
   nas: megacd
   romm: [megacd, segacd]
   emudeck: [segacd]
