@@ -233,6 +233,7 @@ dreamcast:
 
 dos:
   folder_based: true
+  subfolder_exclude: true
   nas: dos
   romm: [dos]
   emudeck: [dos]
@@ -349,6 +350,7 @@ mastersystem:
 
 megacd:
   folder_based: true
+  subfolder_exclude: true
   nas: megacd
   romm: [megacd, segacd]
   emudeck: [segacd]
@@ -626,6 +628,7 @@ sc3000:
 
 scummvm:
   folder_based: true
+  subfolder_exclude: true
   nas: scummvm
   romm: [scummvm]
   emudeck: [scummvm]
@@ -820,6 +823,7 @@ wiiu:
 
 windows:
   folder_based: true
+  subfolder_exclude: true
   nas: windows
   romm: [windows, win]
   emudeck: []

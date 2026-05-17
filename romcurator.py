@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "inventory":
             run_inventory(config, system=getattr(args, "system", None))
         elif args.command == "report":
-            run_report(config, mappings=_load_configured_mappings(config))
+            run_report(config, mappings=_load_configured_mappings(config), systems=_parse_systems(getattr(args, "systems", None)))
         elif args.command == "arcade-analyze":
             run_arcade_analyze(config)
         elif args.command == "mappings":
@@ -126,6 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
     inventory_parser.add_argument("--system", metavar="SYSTEM", help="Only scan this system folder  (default: full archive)")
     report_parser = subparsers.add_parser("report", help="Print inventory report and save timestamped file")
     report_parser.add_argument("--reports", metavar="DIR", help="Directory to save timestamped report file")
+    report_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only report on these systems, comma-separated  e.g. switch,ps3")
     arcade_analyze_parser = subparsers.add_parser("arcade-analyze", help="Summarize arcade inventory records")
     arcade_analyze_parser.add_argument("--reports", metavar="DIR", help="Directory to save timestamped report file")
     subparsers.add_parser("mappings", help="Print and validate system mapping matrix")
