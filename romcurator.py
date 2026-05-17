@@ -94,7 +94,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "dedup-roms":
             from tools.dedup_roms import run_dedup_roms
             regions = args.preferred_regions or None
-            run_dedup_roms(config, system=args.system, preferred_regions=regions, execute=args.execute)
+            mappings = _load_configured_mappings(config)
+            run_dedup_roms(config, mappings=mappings, system=args.system, preferred_regions=regions, execute=args.execute)
         else:
             parser.error(f"Unknown command: {args.command}")
     except Exception as exc:

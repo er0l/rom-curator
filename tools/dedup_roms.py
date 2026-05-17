@@ -86,6 +86,7 @@ class DedupSummary:
 def run_dedup_roms(
     config: dict[str, object],
     *,
+    mappings: dict[str, dict[str, object]] | None = None,
     system: str | None = None,
     preferred_regions: list[str] | None = None,
     execute: bool = False,
@@ -100,7 +101,14 @@ def run_dedup_roms(
     regions = preferred_regions or DEFAULT_PREFERRED_REGIONS
     console = Console() if Console else None
 
-    items, stats = _build_plan(database_path, roms_root, system, regions)
+    # Systems where each game is a subfolder — individual files inside those
+    # subfolders are game data, not standalone ROMs, and must never be deduped.
+    folder_based: frozenset[str] = frozenset(
+        s for s, meta in (mappings or {}).items()
+        if isinstance(meta, dict) and meta.get("folder_based")
+    )
+
+    items, stats = _build_plan(database_path, roms_root, system, regions, folder_based)
 
     summary = DedupSummary(
         total_roms=stats["total_roms"],
@@ -154,6 +162,7 @@ def _build_plan(
     roms_root: Path,
     system: str | None,
     preferred_regions: list[str],
+    folder_based: frozenset[str] = frozenset(),
 ) -> tuple[list[DedupPlanItem], dict]:
     region_rank = {r: i for i, r in enumerate(preferred_regions)}
 
@@ -172,19 +181,29 @@ def _build_plan(
             )
 
     # Group by (system, title, disc) — same key the exporter uses.
-    # Companion files (.cue, .gdi, etc.) are skipped — they are not independent
-    # games and must never be recycled or chosen as a dedup winner.
+    # Two categories of files are excluded from dedup entirely:
+    #
+    # 1. Companion/cuesheet files (.cue, .gdi, etc.) — they describe a primary
+    #    disc image and must travel with it, never be recycled independently.
+    #
+    # 2. Files inside subfolders of folder_based systems (relative_path depth ≥ 3,
+    #    e.g. scummvm/Monkey Island/MONKEY.001 or megacd/Bari-Arm/Bari-Arm.bin).
+    #    These are game data components, not standalone ROMs.  Only flat files at
+    #    the system root (depth = 2) are eligible for dedup on these systems.
     groups: dict[tuple[str, str, str | None], list] = {}
     for row in rows:
         if Path(str(row["filename"])).suffix.lower() in _COMPANION_EXTENSIONS:
             continue
+        if str(row["system"]) in folder_based:
+            if len(Path(str(row["relative_path"])).parts) >= 3:
+                continue  # file is inside a game subfolder — not a standalone ROM
         key = (str(row["system"]), str(row["title"]), row["disc"])
         groups.setdefault(key, []).append(row)
 
     items: list[DedupPlanItem] = []
     dup_groups = 0
 
-    for (_sys, _title, _disc), group_rows in sorted(groups.items()):
+    for (_sys, _title, _disc), group_rows in sorted(groups.items(), key=lambda x: (x[0][0], x[0][1], x[0][2] or "")):
         if len(group_rows) <= 1:
             continue
         dup_groups += 1
