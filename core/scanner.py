@@ -29,6 +29,7 @@ class ScannedFile:
 def iter_rom_files(
     roms_root: str | Path,
     *,
+    system: str | None = None,
     ignore_hidden: bool = True,
     follow_symlinks: bool = False,
     excluded_extensions: frozenset[str] = frozenset(),
@@ -37,6 +38,8 @@ def iter_rom_files(
 
     Callers can stream records into
     SQLite instead of building a giant in-memory list for a multi-terabyte tree.
+
+    If *system* is given, only the ``roms_root/<system>/`` subtree is walked.
     """
     root = Path(roms_root).expanduser().resolve()
     if not root.exists():
@@ -44,7 +47,16 @@ def iter_rom_files(
     if not root.is_dir():
         raise NotADirectoryError(f"ROM root is not a directory: {root}")
 
-    for dirpath, dirnames, filenames in os.walk(root, followlinks=follow_symlinks):
+    if system:
+        scan_root = root / system
+        if not scan_root.exists():
+            raise FileNotFoundError(f"System folder does not exist: {scan_root}")
+        if not scan_root.is_dir():
+            raise NotADirectoryError(f"System path is not a directory: {scan_root}")
+    else:
+        scan_root = root
+
+    for dirpath, dirnames, filenames in os.walk(scan_root, followlinks=follow_symlinks):
         if ignore_hidden:
             dirnames[:] = [name for name in dirnames if not name.startswith(".")]
             filenames = [name for name in filenames if not name.startswith(".")]

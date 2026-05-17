@@ -155,14 +155,31 @@ class InventoryDatabase:
         self.connection.execute("PRAGMA temp_store=MEMORY")
         self.connection.execute("PRAGMA mmap_size=30000000000")
 
-    def get_scan_keys(self) -> dict[str, str]:
-        rows = self.connection.execute(
-            """
-            SELECT scan_state.path, scan_state.scan_key
-            FROM scan_state
-            INNER JOIN roms ON roms.path = scan_state.path
-            """
-        ).fetchall()
+    def get_scan_keys(self, path_prefix: str | None = None) -> dict[str, str]:
+        """Return {path: scan_key} for all known ROM paths.
+
+        If *path_prefix* is given (e.g. ``/mnt/storage/roms/switch/``),
+        only paths under that prefix are returned, which is much faster for
+        single-system scans of large archives.
+        """
+        if path_prefix:
+            rows = self.connection.execute(
+                """
+                SELECT scan_state.path, scan_state.scan_key
+                FROM scan_state
+                INNER JOIN roms ON roms.path = scan_state.path
+                WHERE scan_state.path LIKE ?
+                """,
+                (path_prefix + "%",),
+            ).fetchall()
+        else:
+            rows = self.connection.execute(
+                """
+                SELECT scan_state.path, scan_state.scan_key
+                FROM scan_state
+                INNER JOIN roms ON roms.path = scan_state.path
+                """
+            ).fetchall()
         return {row["path"]: row["scan_key"] for row in rows}
 
     def mark_seen(self, path: str, scan_key: str, scan_timestamp: int) -> None:
@@ -213,36 +230,81 @@ class InventoryDatabase:
             payload,
         )
 
-    def remove_stale(self, scan_timestamp: int) -> int:
-        stale_from_state = self.fetch_scalar(
-            "SELECT COUNT(*) FROM scan_state WHERE last_seen < ?",
-            (scan_timestamp,),
-        )
-        orphaned_roms = self.fetch_scalar(
-            """
-            SELECT COUNT(*)
-            FROM roms
-            WHERE path NOT IN (SELECT path FROM scan_state)
-            """
-        )
-        self.connection.execute(
-            """
-            DELETE FROM roms
-            WHERE path IN (
-                SELECT path
-                FROM scan_state
-                WHERE last_seen < ?
+    def remove_stale(self, scan_timestamp: int, path_prefix: str | None = None) -> int:
+        """Remove rows for files that were not seen during the current scan.
+
+        If *path_prefix* is given, only rows whose path starts with that prefix
+        are considered — other systems are left completely untouched.  This is
+        the safe behaviour for single-system inventory runs.
+        """
+        if path_prefix:
+            like = path_prefix + "%"
+            stale_from_state = self.fetch_scalar(
+                "SELECT COUNT(*) FROM scan_state WHERE last_seen < ? AND path LIKE ?",
+                (scan_timestamp, like),
             )
-            """,
-            (scan_timestamp,),
-        )
-        self.connection.execute(
-            """
-            DELETE FROM roms
-            WHERE path NOT IN (SELECT path FROM scan_state)
-            """
-        )
-        self.connection.execute("DELETE FROM scan_state WHERE last_seen < ?", (scan_timestamp,))
+            orphaned_roms = self.fetch_scalar(
+                """
+                SELECT COUNT(*)
+                FROM roms
+                WHERE path LIKE ?
+                  AND path NOT IN (SELECT path FROM scan_state)
+                """,
+                (like,),
+            )
+            self.connection.execute(
+                """
+                DELETE FROM roms
+                WHERE path LIKE ?
+                  AND path IN (
+                      SELECT path FROM scan_state
+                      WHERE last_seen < ? AND path LIKE ?
+                  )
+                """,
+                (like, scan_timestamp, like),
+            )
+            self.connection.execute(
+                """
+                DELETE FROM roms
+                WHERE path LIKE ?
+                  AND path NOT IN (SELECT path FROM scan_state)
+                """,
+                (like,),
+            )
+            self.connection.execute(
+                "DELETE FROM scan_state WHERE last_seen < ? AND path LIKE ?",
+                (scan_timestamp, like),
+            )
+        else:
+            stale_from_state = self.fetch_scalar(
+                "SELECT COUNT(*) FROM scan_state WHERE last_seen < ?",
+                (scan_timestamp,),
+            )
+            orphaned_roms = self.fetch_scalar(
+                """
+                SELECT COUNT(*)
+                FROM roms
+                WHERE path NOT IN (SELECT path FROM scan_state)
+                """
+            )
+            self.connection.execute(
+                """
+                DELETE FROM roms
+                WHERE path IN (
+                    SELECT path
+                    FROM scan_state
+                    WHERE last_seen < ?
+                )
+                """,
+                (scan_timestamp,),
+            )
+            self.connection.execute(
+                """
+                DELETE FROM roms
+                WHERE path NOT IN (SELECT path FROM scan_state)
+                """
+            )
+            self.connection.execute("DELETE FROM scan_state WHERE last_seen < ?", (scan_timestamp,))
         return stale_from_state + orphaned_roms
 
     def commit(self) -> None:

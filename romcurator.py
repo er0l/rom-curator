@@ -54,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
         apply_overrides(config, args)
 
         if args.command == "inventory":
-            run_inventory(config)
+            run_inventory(config, system=getattr(args, "system", None))
         elif args.command == "report":
             run_report(config, mappings=_load_configured_mappings(config))
         elif args.command == "arcade-analyze":
@@ -122,7 +122,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--profiles", help="Override profiles directory")
 
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("inventory", help="Scan ROM archive into SQLite inventory")
+    inventory_parser = subparsers.add_parser("inventory", help="Scan ROM archive into SQLite inventory")
+    inventory_parser.add_argument("--system", metavar="SYSTEM", help="Only scan this system folder  (default: full archive)")
     report_parser = subparsers.add_parser("report", help="Print inventory report and save timestamped file")
     report_parser.add_argument("--reports", metavar="DIR", help="Directory to save timestamped report file")
     arcade_analyze_parser = subparsers.add_parser("arcade-analyze", help="Summarize arcade inventory records")

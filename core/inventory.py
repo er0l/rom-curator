@@ -33,7 +33,10 @@ class InventorySummary:
 BATCH_SIZE = 1000
 
 
-def run_inventory(config: dict[str, object]) -> InventorySummary:
+def run_inventory(
+    config: dict[str, object],
+    system: str | None = None,
+) -> InventorySummary:
     paths = config.get("paths", {})
     scan_config = config.get("scan", {})
     if not isinstance(paths, dict) or not isinstance(scan_config, dict):
@@ -46,12 +49,17 @@ def run_inventory(config: dict[str, object]) -> InventorySummary:
     follow_symlinks = bool(scan_config.get("follow_symlinks", False))
     excluded_extensions = _load_excluded_extensions(config)
 
+    # When scanning a single system, scope all DB operations to that subtree so
+    # the rest of the archive is never touched.
+    scan_label = f"{roms_root}/{system}" if system else str(roms_root)
+    path_prefix = str(roms_root / system) + "/" if system else None
+
     console = Console() if Console else None
     if console:
-        console.print(f"Scanning [bold]{roms_root}[/bold]")
+        console.print(f"Scanning [bold]{scan_label}[/bold]")
         console.print(f"Database [bold]{database_path}[/bold]")
     else:
-        print(f"Scanning {roms_root}")
+        print(f"Scanning {scan_label}")
         print(f"Database {database_path}")
 
     scanned = 0
@@ -61,8 +69,9 @@ def run_inventory(config: dict[str, object]) -> InventorySummary:
 
     with InventoryDatabase(database_path) as db:
         db.initialize()
-        known_scan_keys = db.get_scan_keys() if incremental else {}
+        known_scan_keys = db.get_scan_keys(path_prefix=path_prefix) if incremental else {}
 
+        task_label = f"Walking {system or 'ROM archive'}"
         if Progress:
             progress = Progress(
                 SpinnerColumn(),
@@ -72,9 +81,10 @@ def run_inventory(config: dict[str, object]) -> InventorySummary:
                 console=console,
             )
             with progress:
-                task_id = progress.add_task("Walking ROM archive", total=None)
+                task_id = progress.add_task(task_label, total=None)
                 for record in iter_rom_files(
                     roms_root,
+                    system=system,
                     ignore_hidden=ignore_hidden,
                     follow_symlinks=follow_symlinks,
                     excluded_extensions=excluded_extensions,
@@ -95,6 +105,7 @@ def run_inventory(config: dict[str, object]) -> InventorySummary:
         else:
             for record in iter_rom_files(
                 roms_root,
+                system=system,
                 ignore_hidden=ignore_hidden,
                 follow_symlinks=follow_symlinks,
                 excluded_extensions=excluded_extensions,
@@ -112,7 +123,7 @@ def run_inventory(config: dict[str, object]) -> InventorySummary:
                 if scanned % BATCH_SIZE == 0:
                     db.commit()
 
-        removed_stale = db.remove_stale(scan_timestamp)
+        removed_stale = db.remove_stale(scan_timestamp, path_prefix=path_prefix)
         db.commit()
 
     summary = InventorySummary(
