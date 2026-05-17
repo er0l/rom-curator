@@ -103,6 +103,14 @@ def create_export_plan(
     arcade_exclude_controls: frozenset[str] = frozenset(
         str(c) for c in (selection.get("arcade_exclude_controls") or [])
     )
+    # Folder-based systems store each game as a subfolder (e.g. scummvm, dos, windows).
+    # The export unit is the whole subfolder; all files within it are hardlinked together.
+    folder_based_systems: frozenset[str] = frozenset(
+        s for s in systems if mappings.get(s, {}).get("folder_based", False)
+    )
+    # Track unique subfolder names seen per folder-based system (for the Seen counter).
+    folder_seen: dict[str, set[str]] = {s: set() for s in folder_based_systems}
+
     grouped: dict[str, dict[tuple[str, str | None], list[object]]] = {system: {} for system in systems}
     with InventoryDatabase(database_path) as db:
         db.initialize()
@@ -119,8 +127,18 @@ def create_export_plan(
                 else:
                     continue
             summary = plan.summaries.setdefault(effective, ExportSystemSummary())
-            summary.seen += 1
-            group_key = _group_key(row, arcade_dedupe=arcade_dedupe)
+
+            if effective in folder_based_systems:
+                # Group by the immediate subfolder under the system root.
+                # For flat files at the system root, use the filename as the key.
+                group_key = _folder_group_key(row)
+                folder_name = group_key[0]
+                if folder_name not in folder_seen[effective]:
+                    folder_seen[effective].add(folder_name)
+                    summary.seen += 1  # count games (subfolders), not individual files
+            else:
+                summary.seen += 1
+                group_key = _group_key(row, arcade_dedupe=arcade_dedupe)
             grouped.setdefault(effective, {}).setdefault(group_key, []).append(row)
 
     for system in systems:
@@ -131,9 +149,43 @@ def create_export_plan(
             continue
 
         is_arcade_system = system in _ARCADE_SUBSYSTEMS or system == "arcade"
+        is_folder_based = system in folder_based_systems
         selected_for_system = 0
         title_groups = grouped.get(system, {})
+
         for rows in title_groups.values():
+            if is_folder_based:
+                # Folder-based game: hardlink every file in the subfolder as one unit.
+                # Region/beta/hack/year filters don't apply at the individual-file level
+                # for multi-file game installs.
+                if isinstance(max_games, int) and selected_for_system >= max_games:
+                    summary.capped += 1
+                    continue
+                game_size = 0
+                for row in rows:
+                    if _roms_root is not None:
+                        source = _roms_root / str(row["relative_path"])
+                    else:
+                        source = Path(str(row["path"]))
+                    destination = _destination_for(
+                        export_root, target_alias,
+                        str(row["system"]), str(row["relative_path"]),
+                    )
+                    file_size = int(row["size"])
+                    plan.items.append(ExportPlanItem(
+                        source=source,
+                        destination=destination,
+                        system=system,
+                        target_system=target_alias,
+                        title=str(_folder_group_key(row)[0]),
+                        size=file_size,
+                    ))
+                    game_size += file_size
+                selected_for_system += 1
+                summary.selected += 1
+                summary.selected_size += game_size
+                continue
+
             candidates = []
             for row in rows:
                 # Arcade-specific: skip BIOS/device/mechanical ROMs before other filters
@@ -399,6 +451,28 @@ def _game_year(row) -> int | None:
         if clean.isdigit() and len(clean) == 4:
             return int(clean)
     return None
+
+
+def _folder_group_key(row) -> tuple[str, None]:
+    """For folder-based systems, group all files that share the same immediate
+    subfolder under the system root.
+
+    Layout examples:
+      scummvm/Monkey Island/mi.000   → group key: "Monkey Island"
+      scummvm/+Start ScummVM.sh      → group key: "+Start ScummVM.sh"  (flat file)
+      windows/Jedi Knight/JEDI_1.iso → group key: "Jedi Knight"
+      dos/King's Quest.zip           → group key: "King's Quest.zip"   (flat file)
+      dos/HoMM2/HEROES2.EXE          → group key: "HoMM2"
+
+    Files sitting directly in the system root (no subfolder) are each their own
+    group so they are exported as standalone items.
+    """
+    parts = Path(str(row["relative_path"])).parts
+    # parts[0] = system folder, parts[1] = game subfolder or flat filename
+    # Only use parts[1] as a game folder when there are deeper files (parts[2+])
+    if len(parts) >= 3:
+        return (parts[1], None)
+    return (str(row["filename"]), None)
 
 
 def _group_key(row, *, arcade_dedupe: bool) -> tuple[str, str | None]:

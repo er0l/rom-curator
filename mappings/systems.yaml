@@ -232,6 +232,7 @@ dreamcast:
   display: {aspect: "4:3", orientation: landscape}
 
 dos:
+  folder_based: true
   nas: dos
   romm: [dos]
   emudeck: [dos]
@@ -623,6 +624,7 @@ sc3000:
   batocera: [sc-3000]
 
 scummvm:
+  folder_based: true
   nas: scummvm
   romm: [scummvm]
   emudeck: [scummvm]
@@ -815,6 +817,7 @@ wiiu:
   display: {aspect: "16:9", orientation: landscape}
 
 windows:
+  folder_based: true
   nas: windows
   romm: [windows, win]
   emudeck: []
