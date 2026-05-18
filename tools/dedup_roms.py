@@ -107,8 +107,17 @@ def run_dedup_roms(
         s for s, meta in (mappings or {}).items()
         if isinstance(meta, dict) and meta.get("folder_based")
     )
+    # Subset of folder_based systems whose subfolder files are untagged data
+    # (megacd audio tracks, dreamcast track*.bin, scummvm data files, etc.).
+    # For these systems, subfolder files are normally excluded from dedup UNLESS
+    # their parsed title matches a flat disc image at the system root — that
+    # means a CHD exists that supersedes the old multi-file subfolder.
+    subfolder_exclude: frozenset[str] = frozenset(
+        s for s, meta in (mappings or {}).items()
+        if isinstance(meta, dict) and meta.get("subfolder_exclude")
+    )
 
-    items, stats = _build_plan(database_path, roms_root, system, regions, folder_based)
+    items, stats = _build_plan(database_path, roms_root, system, regions, folder_based, subfolder_exclude)
 
     summary = DedupSummary(
         total_roms=stats["total_roms"],
@@ -163,6 +172,7 @@ def _build_plan(
     system: str | None,
     preferred_regions: list[str],
     folder_based: frozenset[str] = frozenset(),
+    subfolder_exclude: frozenset[str] = frozenset(),
 ) -> tuple[list[DedupPlanItem], dict]:
     region_rank = {r: i for i, r in enumerate(preferred_regions)}
 
@@ -180,24 +190,52 @@ def _build_plan(
                 "is_beta, is_proto, is_hack FROM roms ORDER BY system, title, filename"
             )
 
+    # For subfolder_exclude systems (dreamcast, megacd, …) pre-compute the set
+    # of titles that have a flat disc image at the system root (depth = 2).
+    # A subfolder file whose parsed title appears in this set belongs to a game
+    # that has been re-released as a single CHD — it IS a dedup candidate.
+    # Subfolder files whose titles are NOT in the set are generic data tracks
+    # (track01.bin, track02.bin, …) from standalone multi-file games — skip them.
+    _DISC_IMAGE_EXTS: frozenset[str] = frozenset({".chd", ".cdi", ".iso", ".img"})
+    flat_disc_titles: dict[str, set[str]] = {}  # system → set[title]
+    for row in rows:
+        sys = str(row["system"])
+        if sys not in subfolder_exclude:
+            continue
+        if len(Path(str(row["relative_path"])).parts) != 2:
+            continue  # only flat files at system root
+        if Path(str(row["filename"])).suffix.lower() in _DISC_IMAGE_EXTS:
+            flat_disc_titles.setdefault(sys, set()).add(str(row["title"]))
+
     # Group by (system, title, disc) — same key the exporter uses.
-    # Two categories of files are excluded from dedup entirely:
+    # Files excluded from dedup:
     #
     # 1. Companion/cuesheet files (.cue, .gdi, etc.) — they describe a primary
     #    disc image and must travel with it, never be recycled independently.
     #
-    # 2. Files inside subfolders of folder_based systems (relative_path depth ≥ 3,
-    #    e.g. scummvm/Monkey Island/MONKEY.001 or megacd/Bari-Arm/Bari-Arm.bin).
-    #    These are game data components, not standalone ROMs.  Only flat files at
-    #    the system root (depth = 2) are eligible for dedup on these systems.
+    # 2. Files inside subfolders of folder_based systems (relative_path depth ≥ 3)
+    #    that do NOT have a matching flat disc image at the system root.
+    #    - scummvm/dos/windows: all subfolder files excluded (no CHD supersedes them)
+    #    - dreamcast/megacd: track*.bin excluded; a named .cdi whose title matches
+    #      a flat CHD is included so the CHD wins the dedup contest
+    #    - switch: depth-3 files (base game) included; depth-4+ (updates) excluded
     groups: dict[tuple[str, str, str | None], list] = {}
     for row in rows:
         if Path(str(row["filename"])).suffix.lower() in _COMPANION_EXTENSIONS:
             continue
-        if str(row["system"]) in folder_based:
-            if len(Path(str(row["relative_path"])).parts) >= 3:
-                continue  # file is inside a game subfolder — not a standalone ROM
-        key = (str(row["system"]), str(row["title"]), row["disc"])
+        sys = str(row["system"])
+        parts = Path(str(row["relative_path"])).parts
+        if sys in folder_based and len(parts) >= 3:
+            if sys in subfolder_exclude:
+                # Allow through only if a flat disc image exists with the same title
+                if str(row["title"]) not in flat_disc_titles.get(sys, set()):
+                    continue  # generic data file (track01.bin etc.) — skip
+            else:
+                # folder_based but not subfolder_exclude (e.g. switch):
+                # depth-4+ are supplementary packages (updates/), skip them
+                if len(parts) >= 4:
+                    continue
+        key = (sys, str(row["title"]), row["disc"])
         groups.setdefault(key, []).append(row)
 
     items: list[DedupPlanItem] = []

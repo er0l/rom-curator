@@ -224,6 +224,8 @@ doom:
   batocera: [doom]
 
 dreamcast:
+  folder_based: true
+  subfolder_exclude: true
   nas: dreamcast
   romm: [dreamcast, dc]
   emudeck: [dreamcast]

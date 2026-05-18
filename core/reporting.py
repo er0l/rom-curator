@@ -257,6 +257,7 @@ def run_report(
                     WHERE 1=1 {sys_and} {dup_extra}
                     GROUP BY system, title
                     HAVING COUNT(*) > 1
+                      AND COUNT(DISTINCT COALESCE(disc, '')) < COUNT(*)
                     ORDER BY files DESC, system, title
                     {dup_limit}
                     """,

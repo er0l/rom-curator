@@ -11,11 +11,15 @@ REGION_ALIASES = {
     "USA": "USA",
     "U": "USA",
     "US": "USA",
+    "NA": "USA",   # North America — common in disc-based collections
     "EUROPE": "Europe",
     "EUR": "Europe",
+    "EU": "Europe",
     "E": "Europe",
+    "PAL": "Europe",
     "JAPAN": "Japan",
     "JPN": "Japan",
+    "JP": "Japan",
     "J": "Japan",
     "WORLD": "World",
     "W": "World",
@@ -24,7 +28,20 @@ REGION_ALIASES = {
 REGION_SPLIT_RE = re.compile(r"[,/&+]|(?:\s+-\s+)|\s+")
 PAREN_TAG_RE = re.compile(r"\(([^()]*)\)|\[([^\[\]]*)\]")
 REVISION_RE = re.compile(r"\b(?:Rev(?:ision)?\.?\s*[A-Za-z0-9]+|v\d+(?:\.\d+)*)\b", re.IGNORECASE)
+# Standard No-Intro/Redump standalone disc tag: (Disc 1), (Disk 2), (Side A), …
 DISC_RE = re.compile(r"\((?:Disc|Disk|Side|Tape|Part)\s*(?:\d+|[A-Z])\)", re.IGNORECASE)
+# Combined region+disc tag used by some collections: (NA - Disc 1), (JP - Disc 2 - subtitle)
+# Captures just the "Disc N" portion so it can be normalised to "(Disc N)".
+DISC_COMBINED_RE = re.compile(
+    r"\([^()]*?-\s*((?:Disc|Disk|Side|Tape|Part)\s*(?:\d+|[A-Z]))\b",
+    re.IGNORECASE,
+)
+# Disc-first combined tag: (Disc 1 - EU), (Disc 2 - English Patch)
+# Captures the "Disc N" portion before the trailing " - region/subtitle".
+DISC_PREFIX_RE = re.compile(
+    r"\(((?:Disc|Disk|Side|Tape|Part)\s*(?:\d+|[A-Z]))\s*-",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -96,5 +113,16 @@ def _detect_revision(tags: list[str]) -> str | None:
 
 
 def _detect_disc(stem: str) -> str | None:
+    # Prefer the canonical standalone form first: (Disc 1)
     match = DISC_RE.search(stem)
-    return match.group(0) if match else None
+    if match:
+        return match.group(0)
+    # Region-before-disc combined form: (NA - Disc 1) → "(Disc 1)"
+    match = DISC_COMBINED_RE.search(stem)
+    if match:
+        return f"({match.group(1)})"
+    # Disc-before-region/subtitle form: (Disc 1 - EU) → "(Disc 1)"
+    match = DISC_PREFIX_RE.search(stem)
+    if match:
+        return f"({match.group(1)})"
+    return None
