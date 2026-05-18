@@ -109,10 +109,10 @@ def run_gen_m3u(
 
     for m3u_path, display_title, filenames in plans:
         rel = m3u_path.relative_to(roms_root)
-        exists_mark = " [exists]" if m3u_path.exists() else ""
-        _print(console, f"  {'UPDATE' if m3u_path.exists() else 'CREATE'}  {rel}{exists_mark}")
+        status = _m3u_status(m3u_path, filenames)
+        _print(console, f"  {status:<9s}  {rel}")
         for fname in filenames:
-            _print(console, f"         {fname}")
+            _print(console, f"             {fname}")
 
     if not execute:
         _print(
@@ -121,13 +121,16 @@ def run_gen_m3u(
         )
         return
 
-    created = updated = errors = 0
+    created = updated = skipped = errors = 0
     for m3u_path, _title, filenames in plans:
-        existed = m3u_path.exists()
+        status = _m3u_status(m3u_path, filenames)
+        if status == "UNCHANGED":
+            skipped += 1
+            continue
         try:
             m3u_path.parent.mkdir(parents=True, exist_ok=True)
             m3u_path.write_text("\n".join(filenames) + "\n", encoding="utf-8")
-            if existed:
+            if status == "UPDATE":
                 updated += 1
             else:
                 created += 1
@@ -136,7 +139,18 @@ def run_gen_m3u(
             _print(console, f"  ERROR  {m3u_path.name}: {exc}", style="red")
 
     style = "red" if errors else "green"
-    _print(console, f"\nDone — created: {created}  updated: {updated}  errors: {errors}", style=style)
+    _print(console, f"\nDone — created: {created}  updated: {updated}  unchanged: {skipped}  errors: {errors}", style=style)
+
+
+def _m3u_status(m3u_path: Path, filenames: list[str]) -> str:
+    """Return 'CREATE', 'UPDATE', or 'UNCHANGED' for a planned .m3u write."""
+    if not m3u_path.exists():
+        return "CREATE"
+    try:
+        existing = m3u_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return "UPDATE"
+    return "UNCHANGED" if existing == filenames else "UPDATE"
 
 
 def _disc_sort_key(disc: str) -> tuple:
