@@ -21,7 +21,7 @@ COMPRESSIBLE_EXTENSIONS: frozenset[str] = frozenset({
     ".sms", ".gg",
     ".gb", ".gbc", ".gba",
     ".n64", ".z64", ".v64",
-    ".md", ".gen", ".32x",
+    ".md", ".gen", ".32x", ".smd", ".bin",
     ".pce", ".sg",
     ".col", ".lnx",
     ".ngp", ".ngc",
@@ -30,6 +30,7 @@ COMPRESSIBLE_EXTENSIONS: frozenset[str] = frozenset({
     ".nds",
     ".dsk", ".adf", ".d64",
     ".tap", ".tzx", ".sna", ".z80", ".sc", ".cas", ".prg", ".t64", ".crt",
+    ".p",
 })
 
 ALREADY_COMPRESSED: frozenset[str] = frozenset({

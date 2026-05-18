@@ -235,7 +235,10 @@ def _build_plan(
                 # depth-4+ are supplementary packages (updates/), skip them
                 if len(parts) >= 4:
                     continue
-        key = (sys, str(row["title"]), row["disc"])
+        # Use lowercase title for grouping so that naming-convention differences
+        # ("The" vs "the", "SkyHawk" vs "Skyhawk") don't create phantom groups.
+        # The kept/displayed title still comes from keeper["title"] (original case).
+        key = (sys, str(row["title"]).lower(), row["disc"])
         groups.setdefault(key, []).append(row)
 
     items: list[DedupPlanItem] = []

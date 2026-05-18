@@ -95,10 +95,9 @@ def run_report(
         else:
             heading = f"Inventory Report: {database_path}"
         _print_heading(heading, console)
+        _print_line(f"Games: {total_games}", console)
         if total_games != total_files:
-            _print_line(f"Games: {total_games}  (files on disk: {total_files})", console)
-        else:
-            _print_line(f"Files: {total_files}", console)
+            _print_line(f"Files on disk: {total_files}", console)
         _print_line(f"Total size: {_format_bytes(total_size)}", console)
 
         # --- Systems by size ------------------------------------------------
@@ -134,7 +133,7 @@ def run_report(
                 [
                     (
                         row["system"],
-                        row["games"] if row["system"] in folder_based else "—",
+                        row["games"],   # unique subfolders for folder_based; = files for flat systems
                         row["files"],
                         _format_bytes(row["size"]),
                     )
