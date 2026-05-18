@@ -82,6 +82,7 @@ def create_export_plan(
     exports_root: str | Path,
     roms_root: str | Path | None = None,
     systems_filter: list[str] | None = None,
+    mame_versions: list[str] | None = None,
 ) -> ExportPlan:
     target = str(profile.get("target"))
     export_root = Path(exports_root).expanduser() / profile_name
@@ -103,6 +104,11 @@ def create_export_plan(
     arcade_exclude_controls: frozenset[str] = frozenset(
         str(c) for c in (selection.get("arcade_exclude_controls") or [])
     )
+    # mame_versions: restrict arcade ROMs to machines present in these versioned romsets.
+    # CLI --mame-versions overrides the profile's selection.mame_versions.
+    _mame_versions: list[str] | None = mame_versions or _as_string_list(
+        selection.get("mame_versions")
+    ) or None
     # Folder-based systems store each game as a subfolder (e.g. scummvm, dos, windows).
     # The export unit is the whole subfolder; all files within it are hardlinked together.
     folder_based_systems: frozenset[str] = frozenset(
@@ -114,7 +120,7 @@ def create_export_plan(
     grouped: dict[str, dict[tuple[str, str | None], list[object]]] = {system: {} for system in systems}
     with InventoryDatabase(database_path) as db:
         db.initialize()
-        for row in db.iter_roms_by_systems(systems):
+        for row in db.iter_roms_by_systems(systems, mame_versions=_mame_versions):
             # For arcade ROMs with a classified sub-system, route to that sub-system
             # if it's in the profile; otherwise fall back to 'arcade'.
             # Example: arcade_system='mame' has no standalone canonical system entry

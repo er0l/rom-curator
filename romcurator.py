@@ -72,11 +72,11 @@ def main(argv: list[str] | None = None) -> int:
             if any(issue.level == "error" for issue in issues):
                 return 1
         elif args.command == "explain":
-            run_explain(config, args.name, systems=_parse_systems(args.systems), year_from=args.year_from, year_to=args.year_to)
+            run_explain(config, args.name, systems=_parse_systems(args.systems), year_from=args.year_from, year_to=args.year_to, mame_versions=_parse_systems(getattr(args, "mame_versions", None)))
         elif args.command == "build":
-            run_build(config, args.name, systems=_parse_systems(args.systems), year_from=args.year_from, year_to=args.year_to, execute=args.execute, rebuild=args.rebuild, yes=args.yes)
+            run_build(config, args.name, systems=_parse_systems(args.systems), year_from=args.year_from, year_to=args.year_to, execute=args.execute, rebuild=args.rebuild, yes=args.yes, mame_versions=_parse_systems(getattr(args, "mame_versions", None)))
         elif args.command == "sync":
-            run_sync(config, args.name, systems=_parse_systems(args.systems), year_from=args.year_from, year_to=args.year_to, execute=args.execute, prune=args.prune, yes=args.yes)
+            run_sync(config, args.name, systems=_parse_systems(args.systems), year_from=args.year_from, year_to=args.year_to, execute=args.execute, prune=args.prune, yes=args.yes, mame_versions=_parse_systems(getattr(args, "mame_versions", None)))
         elif args.command == "profile-add":
             run_profile_modify(config, args.name, add=_parse_systems(args.systems) or [], remove=[])
         elif args.command == "profile-remove":
@@ -87,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
             run_romm_sync(config, mappings, reset=args.reset)
         elif args.command == "arcade-import":
             from core.arcade import run_arcade_import
-            run_arcade_import(config, xml_path=getattr(args, "xml", None), reset=args.reset)
+            run_arcade_import(config, xml_path=getattr(args, "xml", None), reset=args.reset, version=getattr(args, "version", None))
         elif args.command == "zip-roms":
             from tools.zip_roms import run_zip_roms
             run_zip_roms(config, system=args.system, execute=args.execute)
@@ -152,6 +152,7 @@ def build_parser() -> argparse.ArgumentParser:
     explain_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only include these systems, comma-separated  e.g. gba,snes,nes")
     explain_parser.add_argument("--from", dest="year_from", type=int, metavar="YEAR", help="Only include games released in this year or later")
     explain_parser.add_argument("--to", dest="year_to", type=int, metavar="YEAR", help="Only include games released in this year or earlier")
+    explain_parser.add_argument("--mame-versions", metavar="VERSION,...", dest="mame_versions", help="Restrict arcade ROMs to these MAME version romsets, comma-separated  e.g. mame2003,mame2003-plus")
     build_parser = subparsers.add_parser("build", help="Build hardlink export for a profile")
     build_parser.add_argument("name", help="Profile name, for example r36s")
     build_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only export these systems, comma-separated  e.g. gba,snes,nes")
@@ -160,6 +161,7 @@ def build_parser() -> argparse.ArgumentParser:
     build_parser.add_argument("--execute", action="store_true", help="Create hardlinks instead of dry-running")
     build_parser.add_argument("--rebuild", action="store_true", help="Delete this profile export before building")
     build_parser.add_argument("--yes", action="store_true", help="Confirm destructive rebuild behavior")
+    build_parser.add_argument("--mame-versions", metavar="VERSION,...", dest="mame_versions", help="Restrict arcade ROMs to these MAME version romsets, comma-separated  e.g. mame2003,mame2003-plus")
     sync_parser = subparsers.add_parser("sync", help="Build export and optionally prune stale exported files")
     sync_parser.add_argument("name", help="Profile name, for example r36s")
     sync_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only sync these systems, comma-separated  e.g. gba,snes,nes")
@@ -168,11 +170,13 @@ def build_parser() -> argparse.ArgumentParser:
     sync_parser.add_argument("--execute", action="store_true", help="Create hardlinks instead of dry-running")
     sync_parser.add_argument("--prune", action="store_true", help="Remove stale files from this profile export")
     sync_parser.add_argument("--yes", action="store_true", help="Confirm destructive prune behavior")
+    sync_parser.add_argument("--mame-versions", metavar="VERSION,...", dest="mame_versions", help="Restrict arcade ROMs to these MAME version romsets, comma-separated  e.g. mame2003,mame2003-plus")
     romm_sync_parser = subparsers.add_parser("romm-sync", help="Sync ROMM metadata into inventory.sqlite")
     romm_sync_parser.add_argument("--reset", action="store_true", help="Clear romm_roms table before syncing")
     arcade_import_parser = subparsers.add_parser("arcade-import", help="Import MAME XML and classify arcade ROMs")
     arcade_import_parser.add_argument("--xml", metavar="PATH", help="Path to mame.xml (default: stream from mame binary)")
-    arcade_import_parser.add_argument("--reset", action="store_true", help="Clear mame_machines table before importing")
+    arcade_import_parser.add_argument("--version", metavar="NAME", help="Store only machine names under this version label (e.g. mame2003, mame2003-plus) for export filtering.  Omit to import full metadata into mame_machines.")
+    arcade_import_parser.add_argument("--reset", action="store_true", help="Clear the target table (or version slice) before importing")
     zip_roms_parser = subparsers.add_parser("zip-roms", help="Zip uncompressed ROMs, moving originals to recycle bin")
     zip_roms_parser.add_argument("--system", metavar="SYSTEM", help="Only process this system folder  (default: all)")
     zip_roms_parser.add_argument("--execute", action="store_true", help="Actually zip files  (default: dry run)")
@@ -294,29 +298,29 @@ def run_profile_modify(config: dict[str, object], name: str, *, add: list[str], 
         print(f"Profile saved: {profile_path}")
 
 
-def run_explain(config: dict[str, object], name: str, *, systems: list[str] | None = None, year_from: int | None = None, year_to: int | None = None):
-    plan = _create_configured_export_plan(config, name, systems=systems, year_from=year_from, year_to=year_to)
+def run_explain(config: dict[str, object], name: str, *, systems: list[str] | None = None, year_from: int | None = None, year_to: int | None = None, mame_versions: list[str] | None = None):
+    plan = _create_configured_export_plan(config, name, systems=systems, year_from=year_from, year_to=year_to, mame_versions=mame_versions)
     print_export_plan(plan)
     return plan
 
 
-def run_build(config: dict[str, object], name: str, *, systems: list[str] | None = None, year_from: int | None = None, year_to: int | None = None, execute: bool, rebuild: bool, yes: bool):
-    plan = _create_configured_export_plan(config, name, systems=systems, year_from=year_from, year_to=year_to)
+def run_build(config: dict[str, object], name: str, *, systems: list[str] | None = None, year_from: int | None = None, year_to: int | None = None, execute: bool, rebuild: bool, yes: bool, mame_versions: list[str] | None = None):
+    plan = _create_configured_export_plan(config, name, systems=systems, year_from=year_from, year_to=year_to, mame_versions=mame_versions)
     print_export_plan(plan)
     result = execute_export_plan(plan, dry_run=not execute, rebuild=rebuild, yes=yes)
     print_export_result(result)
     return result
 
 
-def run_sync(config: dict[str, object], name: str, *, systems: list[str] | None = None, year_from: int | None = None, year_to: int | None = None, execute: bool, prune: bool, yes: bool):
-    plan = _create_configured_export_plan(config, name, systems=systems, year_from=year_from, year_to=year_to)
+def run_sync(config: dict[str, object], name: str, *, systems: list[str] | None = None, year_from: int | None = None, year_to: int | None = None, execute: bool, prune: bool, yes: bool, mame_versions: list[str] | None = None):
+    plan = _create_configured_export_plan(config, name, systems=systems, year_from=year_from, year_to=year_to, mame_versions=mame_versions)
     print_export_plan(plan)
     result = execute_export_plan(plan, dry_run=not execute, prune=prune, yes=yes)
     print_export_result(result)
     return result
 
 
-def _create_configured_export_plan(config: dict[str, object], name: str, *, systems: list[str] | None = None, year_from: int | None = None, year_to: int | None = None):
+def _create_configured_export_plan(config: dict[str, object], name: str, *, systems: list[str] | None = None, year_from: int | None = None, year_to: int | None = None, mame_versions: list[str] | None = None):
     paths = config.get("paths", {})
     if not isinstance(paths, dict):
         raise ValueError("Config key 'paths' must be a mapping")
@@ -354,6 +358,7 @@ def _create_configured_export_plan(config: dict[str, object], name: str, *, syst
         _resolve_config_path(config, str(exports_path)),
         roms_root=_resolve_config_path(config, str(roms_path)) if roms_path else None,
         systems_filter=systems,
+        mame_versions=mame_versions,
     )
 
 

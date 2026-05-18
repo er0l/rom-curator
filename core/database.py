@@ -98,6 +98,17 @@ CREATE TABLE IF NOT EXISTS mame_machines (
 CREATE INDEX IF NOT EXISTS idx_mame_arcade_system ON mame_machines(arcade_system);
 CREATE INDEX IF NOT EXISTS idx_mame_cloneof       ON mame_machines(cloneof);
 CREATE INDEX IF NOT EXISTS idx_mame_sourcefile    ON mame_machines(sourcefile);
+
+-- Lightweight name-only index per versioned MAME romset (mame2003, mame2003-plus, …).
+-- Populated by: arcade-import --xml FILE --version NAME
+-- Used by the exporter to restrict arcade ROMs to a specific core's supported set.
+CREATE TABLE IF NOT EXISTS mame_version_machines (
+    version TEXT NOT NULL,
+    name    TEXT NOT NULL,
+    PRIMARY KEY (version, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_mame_version ON mame_version_machines(version);
 """
 
 
@@ -129,6 +140,20 @@ class InventoryDatabase:
             self.connection.execute("ALTER TABLE roms ADD COLUMN disc TEXT DEFAULT NULL")
         if "arcade_system" not in cols:
             self.connection.execute("ALTER TABLE roms ADD COLUMN arcade_system TEXT DEFAULT NULL")
+
+        # mame_version_machines was added after initial release; create it if absent.
+        tables = {row[0] for row in self.connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )}
+        if "mame_version_machines" not in tables:
+            self.connection.executescript("""
+                CREATE TABLE IF NOT EXISTS mame_version_machines (
+                    version TEXT NOT NULL,
+                    name    TEXT NOT NULL,
+                    PRIMARY KEY (version, name)
+                );
+                CREATE INDEX IF NOT EXISTS idx_mame_version ON mame_version_machines(version);
+            """)
 
         romm_cols = {row[1] for row in self.connection.execute("PRAGMA table_info(romm_roms)")}
         if "fs_stem" not in romm_cols:
@@ -431,16 +456,51 @@ class InventoryDatabase:
             "SELECT COUNT(*) FROM roms WHERE system = 'arcade' AND arcade_system IS NOT NULL"
         ).fetchone()[0]
 
-    def iter_roms_by_systems(self, systems: list[str]):
+    def upsert_mame_version_machine(self, version: str, name: str) -> None:
+        """Insert a machine name into the versioned romset index (idempotent)."""
+        self.connection.execute(
+            "INSERT OR IGNORE INTO mame_version_machines (version, name) VALUES (?, ?)",
+            (version, name),
+        )
+
+    def list_mame_versions(self) -> list[tuple[str, int]]:
+        """Return [(version, count), …] for all imported MAME version romsets."""
+        rows = self.connection.execute(
+            "SELECT version, COUNT(*) AS cnt FROM mame_version_machines GROUP BY version ORDER BY version"
+        ).fetchall()
+        return [(row[0], row[1]) for row in rows]
+
+    def iter_roms_by_systems(self, systems: list[str], mame_versions: list[str] | None = None):
         """Yield ROM rows for the given systems.
 
         Also yields ROMs from system='arcade' whose arcade_system matches a
         requested system, enabling export routing of classified arcade ROMs to
         their correct sub-system folders (cps1, cps2, neogeo, etc.).
+
+        When mame_versions is given (e.g. ['mame2003', 'mame2003-plus']), arcade
+        ROMs are restricted to machines present in those versioned romsets.
+        Non-arcade systems are not affected.
         """
         if not systems:
             return
         placeholders = ",".join("?" for _ in systems)
+
+        # Optional MAME version filter: only include arcade ROMs whose title
+        # appears in at least one of the requested versioned romsets.
+        if mame_versions:
+            ver_placeholders = ",".join("?" for _ in mame_versions)
+            mame_version_clause = f"""
+                AND (roms.system != 'arcade'
+                     OR LOWER(roms.title) IN (
+                         SELECT name FROM mame_version_machines
+                         WHERE version IN ({ver_placeholders})
+                     ))
+            """
+            mame_version_params = tuple(mame_versions)
+        else:
+            mame_version_clause = ""
+            mame_version_params = ()
+
         query = f"""
             SELECT
                 roms.*,
@@ -481,13 +541,16 @@ class InventoryDatabase:
             LEFT JOIN mame_machines mm
                 ON mm.name = roms.title
                 AND roms.system = 'arcade'
-            WHERE roms.system IN ({placeholders})
+            WHERE (
+                roms.system IN ({placeholders})
                OR (roms.system = 'arcade'
                    AND roms.arcade_system IS NOT NULL
                    AND roms.arcade_system IN ({placeholders}))
+            )
+            {mame_version_clause}
             ORDER BY roms.system, roms.title, roms.filename
         """
-        params = tuple(systems) * 2
+        params = tuple(systems) * 2 + mame_version_params
         seen_ids: set[int] = set()
         for row in self.connection.execute(query, params):
             row_id = row["id"]

@@ -174,8 +174,18 @@ def run_arcade_import(
     *,
     xml_path: str | Path | None = None,
     reset: bool = False,
+    version: str | None = None,
 ) -> dict[str, int]:
-    """Parse MAME XML and populate mame_machines, then classify arcade ROMs in the inventory."""
+    """Parse MAME XML and populate mame_machines (or a versioned romset index).
+
+    When *version* is given (e.g. 'mame2003', 'mame2003-plus'), only machine
+    names are stored in mame_version_machines for that version label.  This
+    lightweight index is used by the exporter to restrict arcade ROMs to the
+    machines supported by a specific libretro core.
+
+    Without *version*, the full machine metadata is written to mame_machines
+    and arcade ROMs in the inventory are classified as before.
+    """
     paths = config.get("paths", {})
     if not isinstance(paths, dict):
         raise ValueError("Config key 'paths' must be a mapping")
@@ -188,19 +198,38 @@ def run_arcade_import(
     if console:
         console.print(f"Source:   [bold]{source_desc}[/bold]")
         console.print(f"Database: [bold]{database_path}[/bold]")
+        if version:
+            console.print(f"Version:  [bold]{version}[/bold]  (version index only)")
     else:
         print(f"Source:   {source_desc}")
         print(f"Database: {database_path}")
+        if version:
+            print(f"Version:  {version}  (version index only)")
 
     with InventoryDatabase(database_path) as db:
         db.initialize()
+
+        if version:
+            # Version-index mode: store only machine names for this romset.
+            if reset:
+                db.connection.execute(
+                    "DELETE FROM mame_version_machines WHERE version = ?", (version,)
+                )
+                db.connection.commit()
+                msg = f"mame_version_machines cleared for version '{version}'."
+                print(msg) if not console else console.print(msg)
+
+            counts = _parse_and_import_version(db, xml_path, version, console)
+            db.commit()
+            _print_version_import_summary(counts, version, console)
+            return counts
+
+        # Full-metadata mode (existing behaviour)
         if reset:
             db.connection.execute("DELETE FROM mame_machines")
             db.connection.commit()
-            if console:
-                console.print("mame_machines table cleared.")
-            else:
-                print("mame_machines table cleared.")
+            msg = "mame_machines table cleared."
+            print(msg) if not console else console.print(msg)
 
         counts = _parse_and_import(db, xml_path, console)
         classified = db.update_arcade_systems()
@@ -317,6 +346,99 @@ def _parse_and_import(
 
     db.commit()
     return {"imported": imported, "systems": systems}
+
+
+def _parse_and_import_version(
+    db: InventoryDatabase,
+    xml_path: Path | None,
+    version: str,
+    console,
+) -> dict[str, int]:
+    """Stream-parse MAME XML and insert machine names into mame_version_machines."""
+    imported = 0
+
+    def _process(source):
+        nonlocal imported
+        for event, elem in iterparse(source, events=["end"]):
+            if elem.tag != "machine":
+                continue
+            name = elem.get("name", "")
+            elem.clear()
+            if name:
+                db.upsert_mame_version_machine(version, name)
+                imported += 1
+                if imported % BATCH_SIZE == 0:
+                    db.commit()
+
+    if Progress and console:
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            TextColumn("{task.completed} machines"),
+            TimeElapsedColumn(),
+            console=console,
+        )
+        with progress:
+            task = progress.add_task(f"Parsing MAME XML [{version}]", total=None)
+
+            def _process_with_progress(source):
+                nonlocal imported
+                for event, elem in iterparse(source, events=["end"]):
+                    if elem.tag != "machine":
+                        continue
+                    name = elem.get("name", "")
+                    elem.clear()
+                    if name:
+                        db.upsert_mame_version_machine(version, name)
+                        imported += 1
+                        progress.advance(task)
+                        if imported % BATCH_SIZE == 0:
+                            db.commit()
+
+            if xml_path:
+                with xml_path.open("rb") as fh:
+                    _process_with_progress(fh)
+            else:
+                mame_bin = shutil.which("mame") or shutil.which("mame64")
+                for candidate in ("/usr/games/mame", "/usr/bin/mame", "/usr/local/bin/mame"):
+                    if not mame_bin and Path(candidate).exists():
+                        mame_bin = candidate
+                with subprocess.Popen(
+                    [mame_bin, "-listxml"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                ) as proc:
+                    _process_with_progress(proc.stdout)
+    else:
+        if xml_path:
+            with xml_path.open("rb") as fh:
+                _process(fh)
+        else:
+            mame_bin = shutil.which("mame") or shutil.which("mame64")
+            for candidate in ("/usr/games/mame", "/usr/bin/mame", "/usr/local/bin/mame"):
+                if not mame_bin and Path(candidate).exists():
+                    mame_bin = candidate
+            with subprocess.Popen(
+                [mame_bin, "-listxml"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            ) as proc:
+                _process(proc.stdout)
+
+    db.commit()
+    return {"imported": imported, "version": version}
+
+
+def _print_version_import_summary(counts: dict, version: str, console) -> None:
+    text = (
+        f"arcade-import (version index) complete\n"
+        f"Version:           {version}\n"
+        f"Machines indexed:  {counts.get('imported', 0)}"
+    )
+    if console:
+        console.print(text, style="green")
+    else:
+        print(text)
 
 
 def _print_import_summary(counts: dict, console) -> None:
