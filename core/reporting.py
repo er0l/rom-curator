@@ -287,11 +287,137 @@ def run_arcade_analyze(config: dict[str, object]) -> None:
         total = db.fetch_scalar("SELECT COUNT(*) FROM roms WHERE system = 'arcade'")
         total_size = db.fetch_scalar("SELECT SUM(size) FROM roms WHERE system = 'arcade'")
         chd_files = db.fetch_scalar("SELECT COUNT(*) FROM roms WHERE system = 'arcade' AND extension = 'chd'")
+        mame_total = db.fetch_scalar("SELECT COUNT(*) FROM mame_machines")
 
         _print_heading(f"Arcade Analysis: {database_path}", console)
-        _print_line(f"Arcade files: {total}", console)
-        _print_line(f"Arcade size: {_format_bytes(total_size)}", console)
-        _print_line(f"CHD files: {chd_files}", console)
+        _print_line(f"Arcade files:  {total}", console)
+        _print_line(f"Arcade size:   {_format_bytes(total_size)}", console)
+        _print_line(f"CHD files:     {chd_files}", console)
+        if mame_total:
+            _print_line(f"MAME machines: {mame_total}", console)
+
+        # --- MAME-enriched sections (only when mame_machines is populated) ----
+        if mame_total:
+            # Coverage: how many of our ROMs have a matching MAME entry
+            matched = db.fetch_scalar(
+                """
+                SELECT COUNT(*) FROM roms r
+                JOIN mame_machines mm ON mm.name = LOWER(r.title)
+                WHERE r.system = 'arcade'
+                """
+            )
+            unmatched = (total or 0) - (matched or 0)
+            _print_table(
+                "MAME Coverage",
+                ["Status", "Files", "Percent"],
+                [
+                    ("matched",   matched,   _format_percent(matched,   total)),
+                    ("unmatched", unmatched, _format_percent(unmatched, total)),
+                ],
+                console,
+            )
+
+            # By arcade sub-system (uses arcade_system column set by arcade-import)
+            _print_table(
+                "By Arcade Sub-system",
+                ["Sub-system", "Files", "Size"],
+                [
+                    (
+                        row["subsystem"],
+                        row["files"],
+                        _format_bytes(row["size"]),
+                    )
+                    for row in db.fetch_all(
+                        """
+                        SELECT COALESCE(arcade_system, 'unmatched') AS subsystem,
+                               COUNT(*) AS files,
+                               SUM(size) AS size
+                        FROM roms
+                        WHERE system = 'arcade'
+                        GROUP BY subsystem
+                        ORDER BY files DESC
+                        """
+                    )
+                ],
+                console,
+            )
+
+            # Driver status breakdown
+            _print_table(
+                "Driver Status",
+                ["Status", "Files", "Percent"],
+                [
+                    (
+                        row["status"],
+                        row["files"],
+                        _format_percent(row["files"], matched),
+                    )
+                    for row in db.fetch_all(
+                        """
+                        SELECT COALESCE(mm.driver_status, 'unknown') AS status,
+                               COUNT(*) AS files
+                        FROM roms r
+                        JOIN mame_machines mm ON mm.name = LOWER(r.title)
+                        WHERE r.system = 'arcade'
+                        GROUP BY status
+                        ORDER BY files DESC
+                        """
+                    )
+                ],
+                console,
+            )
+
+            # Parent vs clone
+            _print_table(
+                "Parent vs Clone",
+                ["Kind", "Files", "Percent"],
+                [
+                    (
+                        row["kind"],
+                        row["files"],
+                        _format_percent(row["files"], matched),
+                    )
+                    for row in db.fetch_all(
+                        """
+                        SELECT
+                            CASE WHEN mm.cloneof IS NULL THEN 'parent'
+                                 ELSE 'clone'
+                            END AS kind,
+                            COUNT(*) AS files
+                        FROM roms r
+                        JOIN mame_machines mm ON mm.name = LOWER(r.title)
+                        WHERE r.system = 'arcade'
+                        GROUP BY kind
+                        ORDER BY files DESC
+                        """
+                    )
+                ],
+                console,
+            )
+
+            # Top manufacturers
+            _print_table(
+                "Top Manufacturers",
+                ["Manufacturer", "Files"],
+                [
+                    (row["manufacturer"], row["files"])
+                    for row in db.fetch_all(
+                        """
+                        SELECT COALESCE(mm.manufacturer, 'Unknown') AS manufacturer,
+                               COUNT(*) AS files
+                        FROM roms r
+                        JOIN mame_machines mm ON mm.name = LOWER(r.title)
+                        WHERE r.system = 'arcade'
+                        GROUP BY manufacturer
+                        ORDER BY files DESC
+                        LIMIT 20
+                        """
+                    )
+                ],
+                console,
+            )
+
+        # --- Extensions (always shown) ----------------------------------------
         _print_table(
             "Arcade Extensions",
             ["Extension", "Files", "Size"],
