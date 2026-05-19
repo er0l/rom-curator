@@ -214,20 +214,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 def load_config(config_path: Path) -> dict[str, object]:
     config = deepcopy(DEFAULT_CONFIG)
-    if not config_path.exists():
-        return config
 
     try:
         import yaml
     except ImportError as exc:
         raise RuntimeError("PyYAML is required to read config.yaml. Install curator/requirements.txt") from exc
 
-    with config_path.open("r", encoding="utf-8") as handle:
-        loaded = yaml.safe_load(handle) or {}
-    if not isinstance(loaded, dict):
-        raise ValueError(f"Config root must be a mapping: {config_path}")
+    for path in (config_path, config_path.with_name("config.local.yaml")):
+        if not path.exists():
+            continue
+        with path.open("r", encoding="utf-8") as handle:
+            loaded = yaml.safe_load(handle) or {}
+        if not isinstance(loaded, dict):
+            raise ValueError(f"Config root must be a mapping: {path}")
+        _deep_update(config, loaded)
 
-    _deep_update(config, loaded)
     config["_config_dir"] = str(config_path.parent)
     return config
 
