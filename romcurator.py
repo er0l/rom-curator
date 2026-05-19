@@ -36,6 +36,9 @@ DEFAULT_CONFIG = {
         "incremental": True,
         "ignore_hidden": True,
         "follow_symlinks": False,
+        # Subfolder names inside roms root to ignore during system discovery.
+        # Hidden folders (starting with .) are already skipped by ignore_hidden.
+        "exclude_system_folders": [".curator", ".exports"],
     },
     "parsing": {
         "detect_regions": True,
@@ -107,8 +110,12 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "scan-systems":
             from core.system_sync import run_scan_systems
             mappings = _load_configured_mappings(config)
+            run_scan_systems(config, mappings=mappings)
+        elif args.command == "compare-systems":
+            from core.system_sync import run_compare_systems
+            mappings = _load_configured_mappings(config)
             profiles = _load_configured_profiles(config)
-            run_scan_systems(config, mappings=mappings, profiles=profiles, apply=args.apply)
+            run_compare_systems(config, args.name, mappings=mappings, profiles=profiles)
         else:
             parser.error(f"Unknown command: {args.command}")
     except Exception as exc:
@@ -199,8 +206,9 @@ def build_parser() -> argparse.ArgumentParser:
     gen_m3u_parser = subparsers.add_parser("gen-m3u", help="Generate .m3u playlist files for multi-disc games")
     gen_m3u_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only process these systems, comma-separated  (default: all)")
     gen_m3u_parser.add_argument("--execute", action="store_true", help="Actually write .m3u files  (default: dry run)")
-    scan_systems_parser = subparsers.add_parser("scan-systems", help="Detect new/removed system folders and sync profiles accordingly")
-    scan_systems_parser.add_argument("--apply", action="store_true", help="Actually update profile YAML files  (default: dry run)")
+    subparsers.add_parser("scan-systems", help="Scan ROM root for new/removed/unknown system folders vs mappings")
+    compare_systems_parser = subparsers.add_parser("compare-systems", help="Compare discovered system folders against a profile's include list")
+    compare_systems_parser.add_argument("name", help="Profile name, for example r36s")
     return parser
 
 

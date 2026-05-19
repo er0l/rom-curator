@@ -1,19 +1,12 @@
-"""Sync ROM system folders against mappings and device profiles.
+"""ROM system folder discovery and profile comparison.
 
-Scans the roms root for subdirectories, cross-references against
-mappings/systems.yaml, and for each profile reports:
-
-  - New systems  — folder exists + in mappings, but missing from the profile
-  - Removed      — listed in the profile's include_systems, but folder is gone
-
-Dry-run by default.  Pass apply=True (--apply on the CLI) to write changes.
+scan_systems   — scan roms root, report new/missing/unknown folders vs mappings
+compare_systems — compare discovered folders against one profile's include list
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-
-from .profiles import modify_profile_systems, selected_systems
 
 try:
     from rich.console import Console
@@ -23,13 +16,10 @@ except ImportError:  # pragma: no cover
     Table = None
 
 
-def run_scan_systems(
-    config: dict[str, object],
-    *,
-    mappings: dict[str, dict[str, object]],
-    profiles: dict[str, dict[str, object]],
-    apply: bool = False,
-) -> None:
+# ── Shared folder scanner ─────────────────────────────────────────────────────
+
+def _scan_folders(config: dict[str, object]) -> tuple[Path, set[str]]:
+    """Return (roms_root, set_of_visible_subfolder_names) applying config exclusions."""
     paths = config.get("paths", {})
     if not isinstance(paths, dict):
         raise ValueError("Config key 'paths' must be a mapping")
@@ -38,121 +28,152 @@ def run_scan_systems(
     if not roms_root.exists():
         raise FileNotFoundError(f"ROM root not found: {roms_root}")
 
+    scan_cfg = config.get("scan", {})
+    ignore_hidden = bool(scan_cfg.get("ignore_hidden", True)) if isinstance(scan_cfg, dict) else True
+    exclude_list: list[str] = []
+    if isinstance(scan_cfg, dict):
+        raw = scan_cfg.get("exclude_system_folders", [])
+        if isinstance(raw, list):
+            exclude_list = [str(e) for e in raw]
+
+    excluded: set[str] = set(exclude_list)
+
+    folders: set[str] = set()
+    for d in roms_root.iterdir():
+        if not d.is_dir():
+            continue
+        name = d.name
+        if name in excluded:
+            continue
+        if ignore_hidden and name.startswith("."):
+            continue
+        folders.add(name)
+
+    return roms_root, folders
+
+
+# ── scan-systems ─────────────────────────────────────────────────────────────
+
+def run_scan_systems(
+    config: dict[str, object],
+    *,
+    mappings: dict[str, dict[str, object]],
+) -> None:
+    """Scan roms root and report what's new, missing, or unknown vs mappings."""
     console = Console() if Console else None
 
-    # ── 1. Scan ROM root ────────────────────────────────────────────────────
-    existing_folders: set[str] = {d.name for d in roms_root.iterdir() if d.is_dir()}
+    roms_root, existing_folders = _scan_folders(config)
+
+    scan_cfg = config.get("scan", {})
+    exclude_list: list[str] = []
+    if isinstance(scan_cfg, dict):
+        raw = scan_cfg.get("exclude_system_folders", [])
+        if isinstance(raw, list):
+            exclude_list = [str(e) for e in raw]
 
     known_with_folder    = sorted(s for s in mappings if s in existing_folders)
     known_without_folder = sorted(s for s in mappings if s not in existing_folders)
     unknown_folders      = sorted(f for f in existing_folders if f not in mappings)
 
-    # ── 2. Per-profile diff ─────────────────────────────────────────────────
-    # For profiles with include_systems = all, new systems are automatically
-    # included (they're already in mappings) so we skip them.
-    # Gone-folder systems might linger harmlessly for "all" profiles but we
-    # leave those alone too — there's nothing stale to clean up in the YAML.
-    profile_diffs: dict[str, dict] = {}
+    _print(console, f"\nSystem Scan: {roms_root}")
+    if exclude_list:
+        _print(console, f"Excluded:    {', '.join(exclude_list)}")
+    _print(console, "")
 
-    for profile_name, profile in sorted(profiles.items()):
-        include_raw = profile.get("include_systems")
-        if include_raw == "all" or include_raw is None:
-            continue  # fully-open profile — nothing to manage
-
-        current_include: set[str] = set(
-            include_raw if isinstance(include_raw, list) else []
-        )
-
-        to_add    = sorted(s for s in known_with_folder    if s not in current_include)
-        to_remove = sorted(s for s in current_include
-                           if s in mappings and s not in existing_folders)
-
-        if to_add or to_remove:
-            profile_diffs[profile_name] = {
-                "path":   profile.get("_path"),
-                "add":    to_add,
-                "remove": to_remove,
-            }
-
-    # ── 3. Report ───────────────────────────────────────────────────────────
-    mode = "APPLY" if apply else "DRY RUN"
-    _print(console, f"\nSystem Scan — {mode}")
-    _print(console, f"ROM root: {roms_root}\n")
-
-    # Summary table
     _print_table(
         console,
         "Summary",
         ["Category", "Count"],
         [
-            ("Known systems with ROM folder",    len(known_with_folder)),
-            ("Known systems without ROM folder", len(known_without_folder)),
+            ("Known systems — folder present",  len(known_with_folder)),
+            ("Known systems — folder absent",   len(known_without_folder)),
             ("Unknown folders (not in mappings)", len(unknown_folders)),
         ],
     )
 
+    if known_with_folder:
+        _print(console, "\nKnown systems with folder:")
+        _print(console, "  " + "  ".join(known_with_folder))
+
+    if known_without_folder:
+        _print(console, "\nKnown systems WITHOUT folder (defined in mappings but no directory):")
+        _print(console, "  " + "  ".join(known_without_folder))
+
     if unknown_folders:
-        _print(console, "Unknown folders (add to mappings/systems.yaml to manage):")
+        _print(console, "\nUnknown folders (not in mappings/systems.yaml):")
         for f in unknown_folders:
             _print(console, f"  {f}")
-        _print(console, "")
+        _print(console, "\n  → Add these to mappings/systems.yaml, or add to")
+        _print(console,   "    scan.exclude_system_folders in config.yaml to silence this warning.")
 
-    if not profile_diffs:
-        _print(console, "All profiles are already in sync with the ROM library.")
-        return
 
-    # Per-profile diff table
-    rows = []
-    for profile_name, diff in profile_diffs.items():
-        for s in diff["add"]:
-            rows.append((profile_name, s, "ADD"))
-        for s in diff["remove"]:
-            rows.append((profile_name, s, "REMOVE"))
+# ── compare-systems ───────────────────────────────────────────────────────────
+
+def run_compare_systems(
+    config: dict[str, object],
+    profile_name: str,
+    *,
+    mappings: dict[str, dict[str, object]],
+    profiles: dict[str, dict[str, object]],
+) -> None:
+    """Compare discovered system folders against one profile's include list."""
+    if profile_name not in profiles:
+        available = ", ".join(sorted(profiles)) or "(none)"
+        raise KeyError(f"Unknown profile '{profile_name}'. Available: {available}")
+
+    console = Console() if Console else None
+    profile = profiles[profile_name]
+    roms_root, existing_folders = _scan_folders(config)
+
+    include_raw = profile.get("include_systems")
+    include_all = include_raw == "all" or include_raw is None
+    current_include: set[str] = (
+        set(mappings) if include_all
+        else set(include_raw if isinstance(include_raw, list) else [])
+    )
+
+    # Only consider systems known to mappings for the comparison
+    known_present = {s for s in mappings if s in existing_folders}
+
+    included      = sorted(known_present & current_include)
+    not_included  = sorted(known_present - current_include)
+    missing       = sorted(
+        s for s in current_include
+        if s in mappings and s not in existing_folders
+    )
+
+    _print(console, f"\nCompare systems — profile: {profile_name}")
+    _print(console, f"ROM root: {roms_root}\n")
 
     _print_table(
         console,
-        f"Profile Changes ({'would apply' if not apply else 'applied'})",
-        ["Profile", "System", "Action"],
-        rows,
+        "Summary",
+        ["Category", "Count"],
+        [
+            ("Included in profile (folder present)",       len(included)),
+            ("Not in profile   (folder present, can add)", len(not_included)),
+            ("In profile but folder missing  (can remove)", len(missing)),
+        ],
     )
 
-    if not apply:
-        _print(console, f"\nDRY RUN — {len(rows)} change(s) across {len(profile_diffs)} profile(s). "
-               "Pass --apply to update profiles.")
-        return
+    if included:
+        _print(console, "\nIncluded:")
+        _print(console, "  " + "  ".join(included))
 
-    # ── 4. Apply ────────────────────────────────────────────────────────────
-    total_added = total_removed = total_errors = 0
-    for profile_name, diff in profile_diffs.items():
-        if not diff["path"]:
-            _print(console, f"  SKIP  {profile_name}: profile path unknown", style="yellow")
-            continue
-        try:
-            result = modify_profile_systems(
-                diff["path"],
-                add=diff["add"],
-                remove=diff["remove"],
-                mappings=mappings,
-            )
-            added   = len(result.get("added",   []))
-            removed = len(result.get("removed", []))
-            total_added   += added
-            total_removed += removed
-            if added or removed:
-                _print(console,
-                       f"  OK    {profile_name}: +{added} added, -{removed} removed",
-                       style="green")
-        except Exception as exc:
-            total_errors += 1
-            _print(console, f"  ERROR {profile_name}: {exc}", style="red")
+    if not_included:
+        _print(console, "\nNot in profile — available to add:")
+        _print(console, "  " + "  ".join(not_included))
+        hint = ",".join(not_included)
+        _print(console, f"\n  → romcurator profile-add {profile_name} {hint}")
 
-    style = "red" if total_errors else "green"
-    _print(console,
-           f"\nDone — added: {total_added}  removed: {total_removed}  errors: {total_errors}",
-           style=style)
+    if missing:
+        _print(console, "\nIn profile but folder is gone:")
+        _print(console, "  " + "  ".join(missing))
+        hint = ",".join(missing)
+        _print(console, f"\n  → romcurator profile-remove {profile_name} {hint}")
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _print(console, msg: str, style: str = "") -> None:
     if console:
