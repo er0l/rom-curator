@@ -302,8 +302,8 @@ ROMM metadata is stored in a `romm_roms` table and joined to the `roms` table
 on `(canonical_system, filename)` at query time. ROMM is never queried during
 inventory scans or export builds — only when `romm-sync` is explicitly run.
 
-Requires `ROMM_TOKEN` in a `.env` file at the project root.
-The ROMM URL is configured in `config.yaml` under `romm.url`.
+Requires `ROMM_URL` and `ROMM_TOKEN` in a `.env` file at the project root
+(copy `.env.example` to `.env` and fill in both values).
 
 Cached fields per ROM:
 
@@ -456,9 +456,9 @@ Dependencies:
 ```text
 rom-curator/
 ├── romcurator.py           ← entry point
-├── config.yaml             ← paths, scan settings, ROMM URL
+├── config.yaml             ← paths, scan settings, ROMM page_size
 ├── requirements.txt
-├── .env.example            ← copy to .env, add ROMM_TOKEN
+├── .env.example            ← copy to .env, add ROMM_URL and ROMM_TOKEN
 ├── core/
 │   ├── arcade.py           ← MAME XML parser, arcade sub-system classifier
 │   ├── database.py         ← SQLite layer (roms, mame_machines, romm_roms)
