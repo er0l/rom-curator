@@ -66,11 +66,11 @@ def run_romm_sync(
 
     _load_env(config)
 
-    romm_url = str(romm_config.get("url") or os.environ.get("ROMM_URL", "")).rstrip("/")
+    romm_url = str(os.environ.get("ROMM_URL") or romm_config.get("url") or "").rstrip("/")
     romm_token = os.environ.get("ROMM_TOKEN", "")
     if not romm_url:
         raise ValueError(
-            "ROMM URL not configured. Set 'romm.url' in config.yaml or ROMM_URL in .env"
+            "ROMM URL not configured. Add ROMM_URL=https://your-romm-instance to .env"
         )
     if not romm_token:
         raise ValueError("ROMM token not found. Set ROMM_TOKEN in .env")

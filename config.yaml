@@ -18,7 +18,6 @@ parsing:
   detect_revision: true
   detect_tags: true
 
-# ROMM integration — token must be set in .env as ROMM_TOKEN (never in this file)
+# ROMM integration — set both ROMM_URL and ROMM_TOKEN in .env (never in this file)
 romm:
-  url: https://your-romm-instance.example.com
   page_size: 200
