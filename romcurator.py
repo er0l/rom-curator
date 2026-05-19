@@ -104,6 +104,11 @@ def main(argv: list[str] | None = None) -> int:
             from tools.gen_m3u import run_gen_m3u
             mappings = _load_configured_mappings(config)
             run_gen_m3u(config, mappings=mappings, systems=_parse_systems(getattr(args, "systems", None)), execute=args.execute)
+        elif args.command == "scan-systems":
+            from core.system_sync import run_scan_systems
+            mappings = _load_configured_mappings(config)
+            profiles = _load_configured_profiles(config)
+            run_scan_systems(config, mappings=mappings, profiles=profiles, apply=args.apply)
         else:
             parser.error(f"Unknown command: {args.command}")
     except Exception as exc:
@@ -194,6 +199,8 @@ def build_parser() -> argparse.ArgumentParser:
     gen_m3u_parser = subparsers.add_parser("gen-m3u", help="Generate .m3u playlist files for multi-disc games")
     gen_m3u_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only process these systems, comma-separated  (default: all)")
     gen_m3u_parser.add_argument("--execute", action="store_true", help="Actually write .m3u files  (default: dry run)")
+    scan_systems_parser = subparsers.add_parser("scan-systems", help="Detect new/removed system folders and sync profiles accordingly")
+    scan_systems_parser.add_argument("--apply", action="store_true", help="Actually update profile YAML files  (default: dry run)")
     return parser
 
 
