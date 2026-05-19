@@ -490,7 +490,7 @@ def _group_key(row, *, arcade_dedupe: bool) -> tuple[str, str | None]:
     everything else (and when arcade_dedupe is False) the key is the parsed
     title plus optional disc tag, matching the classic cartridge behaviour.
     """
-    if row["system"] == "arcade" and arcade_dedupe:
+    if row["system"] in _ARCADE_SUBSYSTEMS | {"arcade"} and arcade_dedupe:
         parent = str(row["mame_cloneof"]) if row["mame_cloneof"] else str(row["title"])
         return (parent, None)
     return (str(row["title"]), row["disc"] if row["disc"] else None)
