@@ -67,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "report":
             run_report(config, mappings=_load_configured_mappings(config), systems=_parse_systems(getattr(args, "systems", None)))
         elif args.command == "arcade-analyze":
-            run_arcade_analyze(config)
+            run_arcade_analyze(config, system=getattr(args, "system", None) or "arcade")
         elif args.command == "mappings":
             issues = run_mappings(config)
             if any(issue.level == "error" for issue in issues):
@@ -164,6 +164,7 @@ def build_parser() -> argparse.ArgumentParser:
     report_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only report on these systems, comma-separated  e.g. switch,ps3")
     arcade_analyze_parser = subparsers.add_parser("arcade-analyze", help="Summarize arcade inventory records")
     arcade_analyze_parser.add_argument("--reports", metavar="DIR", help="Directory to save timestamped report file")
+    arcade_analyze_parser.add_argument("--system", metavar="SYSTEM", default="arcade", help="Inventory system to analyse (default: arcade)")
     subparsers.add_parser("mappings", help="Print and validate system mapping matrix")
     subparsers.add_parser("profiles", help="Print and validate device profiles")
     profile_parser = subparsers.add_parser("profile", help="Print one device profile in detail")

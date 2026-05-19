@@ -270,7 +270,7 @@ def run_report(
     _save_report(console, reports_root, report_prefix)
 
 
-def run_arcade_analyze(config: dict[str, object]) -> None:
+def run_arcade_analyze(config: dict[str, object], *, system: str = "arcade") -> None:
     paths = config.get("paths", {})
     if not isinstance(paths, dict):
         raise ValueError("Invalid config: expected 'paths' mapping")
@@ -281,30 +281,29 @@ def run_arcade_analyze(config: dict[str, object]) -> None:
 
     reports_root = _reports_root(paths)
     console = Console(record=reports_root is not None) if Console else None
+    p = (system,)
 
     with InventoryDatabase(database_path) as db:
         db.initialize()
-        total = db.fetch_scalar("SELECT COUNT(*) FROM roms WHERE system = 'arcade'")
-        total_size = db.fetch_scalar("SELECT SUM(size) FROM roms WHERE system = 'arcade'")
-        chd_files = db.fetch_scalar("SELECT COUNT(*) FROM roms WHERE system = 'arcade' AND extension = 'chd'")
+        total = db.fetch_scalar("SELECT COUNT(*) FROM roms WHERE system = ?", p)
+        total_size = db.fetch_scalar("SELECT SUM(size) FROM roms WHERE system = ?", p)
+        chd_files = db.fetch_scalar("SELECT COUNT(*) FROM roms WHERE system = ? AND extension = 'chd'", p)
         mame_total = db.fetch_scalar("SELECT COUNT(*) FROM mame_machines")
 
-        _print_heading(f"Arcade Analysis: {database_path}", console)
-        _print_line(f"Arcade files:  {total}", console)
-        _print_line(f"Arcade size:   {_format_bytes(total_size)}", console)
+        _print_heading(f"Arcade Analysis ({system}): {database_path}", console)
+        _print_line(f"Files:         {total}", console)
+        _print_line(f"Total size:    {_format_bytes(total_size)}", console)
         _print_line(f"CHD files:     {chd_files}", console)
         if mame_total:
             _print_line(f"MAME machines: {mame_total}", console)
 
         # --- MAME-enriched sections (only when mame_machines is populated) ----
         if mame_total:
-            # Coverage: how many of our ROMs have a matching MAME entry
             matched = db.fetch_scalar(
-                """
-                SELECT COUNT(*) FROM roms r
-                JOIN mame_machines mm ON mm.name = LOWER(r.title)
-                WHERE r.system = 'arcade'
-                """
+                "SELECT COUNT(*) FROM roms r"
+                " JOIN mame_machines mm ON mm.name = LOWER(r.title)"
+                " WHERE r.system = ?",
+                p,
             )
             unmatched = (total or 0) - (matched or 0)
             _print_table(
@@ -317,120 +316,86 @@ def run_arcade_analyze(config: dict[str, object]) -> None:
                 console,
             )
 
-            # By arcade sub-system (uses arcade_system column set by arcade-import)
             _print_table(
                 "By Arcade Sub-system",
                 ["Sub-system", "Files", "Size"],
                 [
-                    (
-                        row["subsystem"],
-                        row["files"],
-                        _format_bytes(row["size"]),
-                    )
+                    (row["subsystem"], row["files"], _format_bytes(row["size"]))
                     for row in db.fetch_all(
-                        """
-                        SELECT COALESCE(arcade_system, 'unmatched') AS subsystem,
-                               COUNT(*) AS files,
-                               SUM(size) AS size
-                        FROM roms
-                        WHERE system = 'arcade'
-                        GROUP BY subsystem
-                        ORDER BY files DESC
-                        """
+                        "SELECT COALESCE(arcade_system, 'unmatched') AS subsystem,"
+                        "       COUNT(*) AS files, SUM(size) AS size"
+                        " FROM roms WHERE system = ?"
+                        " GROUP BY subsystem ORDER BY files DESC",
+                        p,
                     )
                 ],
                 console,
             )
 
-            # Driver status breakdown
             _print_table(
                 "Driver Status",
                 ["Status", "Files", "Percent"],
                 [
-                    (
-                        row["status"],
-                        row["files"],
-                        _format_percent(row["files"], matched),
-                    )
+                    (row["status"], row["files"], _format_percent(row["files"], matched))
                     for row in db.fetch_all(
-                        """
-                        SELECT COALESCE(mm.driver_status, 'unknown') AS status,
-                               COUNT(*) AS files
-                        FROM roms r
-                        JOIN mame_machines mm ON mm.name = LOWER(r.title)
-                        WHERE r.system = 'arcade'
-                        GROUP BY status
-                        ORDER BY files DESC
-                        """
+                        "SELECT COALESCE(mm.driver_status, 'unknown') AS status,"
+                        "       COUNT(*) AS files"
+                        " FROM roms r"
+                        " JOIN mame_machines mm ON mm.name = LOWER(r.title)"
+                        " WHERE r.system = ?"
+                        " GROUP BY status ORDER BY files DESC",
+                        p,
                     )
                 ],
                 console,
             )
 
-            # Parent vs clone
             _print_table(
                 "Parent vs Clone",
                 ["Kind", "Files", "Percent"],
                 [
-                    (
-                        row["kind"],
-                        row["files"],
-                        _format_percent(row["files"], matched),
-                    )
+                    (row["kind"], row["files"], _format_percent(row["files"], matched))
                     for row in db.fetch_all(
-                        """
-                        SELECT
-                            CASE WHEN mm.cloneof IS NULL THEN 'parent'
-                                 ELSE 'clone'
-                            END AS kind,
-                            COUNT(*) AS files
-                        FROM roms r
-                        JOIN mame_machines mm ON mm.name = LOWER(r.title)
-                        WHERE r.system = 'arcade'
-                        GROUP BY kind
-                        ORDER BY files DESC
-                        """
+                        "SELECT CASE WHEN mm.cloneof IS NULL THEN 'parent' ELSE 'clone' END AS kind,"
+                        "       COUNT(*) AS files"
+                        " FROM roms r"
+                        " JOIN mame_machines mm ON mm.name = LOWER(r.title)"
+                        " WHERE r.system = ?"
+                        " GROUP BY kind ORDER BY files DESC",
+                        p,
                     )
                 ],
                 console,
             )
 
-            # Top manufacturers
             _print_table(
                 "Top Manufacturers",
                 ["Manufacturer", "Files"],
                 [
                     (row["manufacturer"], row["files"])
                     for row in db.fetch_all(
-                        """
-                        SELECT COALESCE(mm.manufacturer, 'Unknown') AS manufacturer,
-                               COUNT(*) AS files
-                        FROM roms r
-                        JOIN mame_machines mm ON mm.name = LOWER(r.title)
-                        WHERE r.system = 'arcade'
-                        GROUP BY manufacturer
-                        ORDER BY files DESC
-                        LIMIT 20
-                        """
+                        "SELECT COALESCE(mm.manufacturer, 'Unknown') AS manufacturer,"
+                        "       COUNT(*) AS files"
+                        " FROM roms r"
+                        " JOIN mame_machines mm ON mm.name = LOWER(r.title)"
+                        " WHERE r.system = ?"
+                        " GROUP BY manufacturer ORDER BY files DESC LIMIT 20",
+                        p,
                     )
                 ],
                 console,
             )
 
-        # --- Extensions (always shown) ----------------------------------------
         _print_table(
-            "Arcade Extensions",
+            "Extensions",
             ["Extension", "Files", "Size"],
             [
                 (row["extension"] or "(none)", row["files"], _format_bytes(row["size"]))
                 for row in db.fetch_all(
-                    """
-                    SELECT extension, COUNT(*) AS files, SUM(size) AS size
-                    FROM roms
-                    WHERE system = 'arcade'
-                    GROUP BY extension
-                    ORDER BY files DESC
-                    """
+                    "SELECT extension, COUNT(*) AS files, SUM(size) AS size"
+                    " FROM roms WHERE system = ?"
+                    " GROUP BY extension ORDER BY files DESC",
+                    p,
                 )
             ],
             console,
