@@ -31,19 +31,14 @@ include_systems:
   - gbc
   - lynx
   - mastersystem
-  - megacd
   - megadrive
   - n64
   - nds
   - neogeo
-  - neogeocd
   - nes
   - ngp
   - ngpc
   - pcengine
-  - pcenginecd
-  - psp
-  - psx
   - sega32x
   - snes
   - supergrafx
@@ -63,7 +58,7 @@ exclude_systems:
   - windows
   - xbox
 
-max_games_per_system: 100
+max_games_per_system: 4000
 
 preferred_region:
   - USA
@@ -81,7 +76,7 @@ selection:
   arcade_exclude_controls: [wheel, spinner, trackball, lightgun, mouse, pedal]
   # Restrict arcade ROMs to machines supported by the mame2003/mame2003-plus
   # libretro cores, which are the only well-performing options on RK3326 hardware.
-  mame_versions: [mame2003, mame2003-plus]
+  mame_versions: [mame2003-plus]
   # ROMM metadata filters — only applied to ROMs that have a romm-sync record.
   # Games with no ROMM data are never penalised by these filters.
   # year_from: 1980    # only include games released from this year

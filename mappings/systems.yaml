@@ -29,7 +29,7 @@ amstradcpc:
   nas: amstradcpc
 
 amstradgx4000:
-  nas: amstradgx4000
+  nas: gx4000
 
 android:
   nas: android
@@ -230,6 +230,9 @@ msx2:
 msxturbor:
   nas: msxturbor
 
+msx2plus:
+  nas: msx2+
+
 n64:
   nas: n64
   display: {aspect: "4:3", orientation: landscape}
@@ -308,7 +311,7 @@ pico8:
   nas: pico-8
 
 plus4:
-  nas: plus4
+  nas: cplus4
   display: {aspect: "4:3", orientation: landscape}
 
 pokemini:
@@ -342,6 +345,9 @@ satellaview:
 saturn:
   nas: saturn
   display: {aspect: "4:3", orientation: landscape}
+
+samcoupe:
+  nas: samcoupe
 
 sc3000:
   nas: sc-3000

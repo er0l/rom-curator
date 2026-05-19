@@ -375,6 +375,58 @@ Arcade ROMs that don't match a requested sub-system fall back to the `arcade` fo
 
 Classification is stored in the `arcade_system` column of the `roms` table and the `mame_machines` table. Re-run `arcade-import` to refresh after a MAME update.
 
+#### DAT file storage convention
+
+Store MAME XML DAT files under `mame-xml/` using the libretro core name as the filename:
+
+```text
+mame-xml/
+├── mame2000.xml        ← MAME 0.37b5
+├── mame2003.xml        ← MAME 0.78
+├── mame2003-plus.xml   ← MAME 0.78+ (mame2003-plus core)
+├── mame2010.xml        ← MAME 0.139
+├── mame2014.xml        ← MAME 0.159
+├── mame2016.xml        ← MAME 0.174 (arcade only)
+└── mame2016-home.xml   ← MAME 0.174 (home systems)
+```
+
+DAT files can be plain `.xml`/`.dat` or `.zip` archives containing one — both are accepted by `arcade-import` and `dat-check`.
+
+#### dat-check — identify your romset version
+
+Compare a ROM folder against one or more MAME XML DAT files to identify which version the romset is from. **Read-only — no database changes.**
+
+```bash
+python3 romcurator.py dat-check /mnt/storage/roms/arcade mame-xml/mame2016.xml
+```
+
+Check against multiple DATs at once for a side-by-side coverage comparison:
+
+```bash
+python3 romcurator.py dat-check /mnt/storage/roms/arcade \
+    mame-xml/mame2003-plus.xml \
+    mame-xml/mame2014.xml \
+    mame-xml/mame2016.xml
+```
+
+Output columns:
+
+| Column | Meaning |
+|--------|---------|
+| Machines (total) | All entries in the DAT including clones |
+| Parents only | Unique games (no regional variants or clones) |
+| Your folder has | Files in the folder recognised by this DAT |
+| % of folder | Fraction of your files known to this DAT — **highest value = likely source version** |
+| % of DAT parents | How complete your collection is relative to this DAT |
+
+DATs with identical machine lists are automatically flagged (e.g. a mislabelled zip).
+
+Add `--detail` to list files in the folder that are not found in any DAT:
+
+```bash
+python3 romcurator.py dat-check /mnt/storage/roms/arcade mame-xml/mame2016.xml --detail
+```
+
 ## Commands
 
 From the repository root:
@@ -415,6 +467,11 @@ python3 romcurator.py profile-remove r36s megadrive
 python3 romcurator.py arcade-import --xml mame2003.xml --version mame2003
 python3 romcurator.py arcade-import --xml mame2003-plus.xml --version mame2003-plus
 python3 romcurator.py build r36s --mame-versions mame2003,mame2003-plus --execute
+python3 romcurator.py dat-check /mnt/storage/roms/arcade mame-xml/mame2016.xml
+python3 romcurator.py dat-check /mnt/storage/roms/arcade mame-xml/mame2003-plus.xml mame-xml/mame2016.xml
+python3 romcurator.py dat-check /mnt/storage/roms/arcade mame-xml/mame2016.xml --detail
+python3 romcurator.py folder-check /mnt/storage/roms/cps1 /mnt/storage/roms/arcade
+python3 romcurator.py folder-check /mnt/storage/roms/cps1 /mnt/storage/roms/arcade --detail
 ```
 
 Useful overrides (e.g. for testing against a small sample tree):
@@ -499,9 +556,11 @@ rom-curator/
 ├── core/
 │   ├── arcade.py           ← MAME XML parser, arcade sub-system classifier
 │   ├── database.py         ← SQLite layer (roms, mame_machines, romm_roms)
+│   ├── dat_check.py        ← compare ROM folder against MAME XML DAT files
 │   ├── exporter.py         ← export plan, hardlink execution, arcade dedup
+│   ├── folder_check.py     ← compare two ROM folders for duplicate detection
 │   ├── inventory.py        ← scan orchestration
-│   ├── mappings.py         ← systems.yaml loader
+│   ├── mappings.py         ← systems.yaml loader and layout file loader
 │   ├── parser.py           ← No-Intro/Redump filename parser
 │   ├── profiles.py         ← profile loader and screen-fit display
 │   ├── reporting.py        ← inventory and arcade reports
@@ -514,7 +573,13 @@ rom-curator/
 │   ├── clean_media.py      ← remove orphaned media/image/video files
 │   └── gen_m3u.py          ← generate .m3u playlists for multi-disc games
 ├── mappings/
-│   └── systems.yaml        ← canonical system → target folder matrix
+│   ├── systems.yaml        ← canonical system → NAS folder name + display metadata
+│   └── layouts/            ← per-target folder aliases
+│       ├── batocera.yaml
+│       ├── emudeck.yaml
+│       ├── r36s.yaml
+│       └── romm.yaml
+├── mame-xml/               ← MAME XML DAT files (named by libretro core)
 ├── profiles/
 │   ├── batocera.yaml
 │   ├── odroidgosuper.yaml
@@ -681,6 +746,36 @@ Use `profile-add` and `profile-remove` to act on the suggestions:
 python3 romcurator.py profile-add r36s amiga500,amiga1200
 python3 romcurator.py profile-remove r36s megadrive
 ```
+
+#### folder-check — find duplicates across folders
+
+Compare a source folder against a target folder to identify which files are already present before consolidating or deleting. **Read-only — no database changes, no files moved.**
+
+```bash
+python3 romcurator.py folder-check /mnt/storage/roms/cps1 /mnt/storage/roms/arcade
+```
+
+Each file in the source is categorised:
+
+| Category | Meaning |
+|----------|---------|
+| ✓ Same name + size | Identical file already in target — safe to delete from source |
+| ⚠ Same name, different size | Different ROM version (different CRC) — keep both, do not overwrite |
+| ✗ Not in target | Only in source — would be lost if source folder is deleted |
+
+Size mismatches are always printed. Add `--detail` to also list safe-to-delete and missing files:
+
+```bash
+python3 romcurator.py folder-check /mnt/storage/roms/cps1 /mnt/storage/roms/arcade --detail
+```
+
+Filter by extension (default: all common ROM extensions):
+
+```bash
+python3 romcurator.py folder-check /mnt/storage/roms/cps1 /mnt/storage/roms/arcade --ext zip,7z
+```
+
+Typical use: before consolidating separate sub-system folders (`cps1/`, `cps2/`, `neogeo/`) into a single `arcade/` folder, run `folder-check` on each to confirm all files are already present and flag any version mismatches.
 
 ## Not Implemented Yet
 

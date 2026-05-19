@@ -115,7 +115,11 @@ def classify_sourcefile(sourcefile: str | None) -> str:
 # ---------------------------------------------------------------------------
 
 def parse_machine(elem) -> MameMachine:
-    """Parse a <machine> lxml/ElementTree element into a MameMachine."""
+    """Parse a <machine> or <game> element into a MameMachine.
+
+    Modern MAME (≥0.162) uses <machine>; older DATs (mame2003, mame2003-plus,
+    etc.) use <game>.  Both share the same attributes and child elements.
+    """
     driver = elem.find("driver")
     inp = elem.find("input")
     display = elem.find("display")
@@ -275,9 +279,9 @@ def _parse_and_import(
     def _process(source):
         nonlocal imported
         for event, elem in iterparse(source, events=["end"]):
-            if elem.tag != "machine":
+            if elem.tag not in ("machine", "game"):
                 # Do NOT clear child elements here — their text is needed when
-                # the parent <machine> end event fires.  Clearing a <year> or
+                # the parent element's end event fires.  Clearing a <year> or
                 # <manufacturer> element before the machine is processed would
                 # destroy its text content.
                 continue
@@ -303,7 +307,7 @@ def _parse_and_import(
             def _process_with_progress(source):
                 nonlocal imported
                 for event, elem in iterparse(source, events=["end"]):
-                    if elem.tag != "machine":
+                    if elem.tag not in ("machine", "game"):
                         continue
                     machine = parse_machine(elem)
                     elem.clear()
@@ -360,7 +364,7 @@ def _parse_and_import_version(
     def _process(source):
         nonlocal imported
         for event, elem in iterparse(source, events=["end"]):
-            if elem.tag != "machine":
+            if elem.tag not in ("machine", "game"):
                 continue
             name = elem.get("name", "")
             elem.clear()
@@ -384,7 +388,7 @@ def _parse_and_import_version(
             def _process_with_progress(source):
                 nonlocal imported
                 for event, elem in iterparse(source, events=["end"]):
-                    if elem.tag != "machine":
+                    if elem.tag not in ("machine", "game"):
                         continue
                     name = elem.get("name", "")
                     elem.clear()

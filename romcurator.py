@@ -123,6 +123,14 @@ def main(argv: list[str] | None = None) -> int:
             mappings = _load_configured_mappings(config)
             profiles = _load_configured_profiles(config)
             run_compare_systems(config, args.name, mappings=mappings, profiles=profiles)
+        elif args.command == "folder-check":
+            from core.folder_check import run_folder_check, ROM_EXTENSIONS
+            exts = frozenset(args.ext.lower().split(",")) if args.ext else ROM_EXTENSIONS
+            run_folder_check(Path(args.source), Path(args.target), extensions=exts, detail=args.detail)
+        elif args.command == "dat-check":
+            from core.dat_check import run_dat_check
+            dat_paths = [Path(d) for d in args.dats]
+            run_dat_check(Path(args.folder), dat_paths, detail=args.detail, parents_only=args.parents_only)
         else:
             parser.error(f"Unknown command: {args.command}")
     except Exception as exc:
@@ -216,6 +224,16 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("scan-systems", help="Scan ROM root for new/removed/unknown system folders vs mappings")
     compare_systems_parser = subparsers.add_parser("compare-systems", help="Compare discovered system folders against a profile's include list")
     compare_systems_parser.add_argument("name", help="Profile name, for example r36s")
+    folder_check_parser = subparsers.add_parser("folder-check", help="Check which files in a source folder are already present in a target folder")
+    folder_check_parser.add_argument("source", help="Source folder to check (e.g. /mnt/storage/roms/cps1)")
+    folder_check_parser.add_argument("target", help="Target folder to compare against (e.g. /mnt/storage/roms/arcade)")
+    folder_check_parser.add_argument("--detail", action="store_true", help="Print full file lists for all categories")
+    folder_check_parser.add_argument("--ext", metavar="EXT,...", help="Only check files with these extensions, comma-separated (default: all ROM extensions)")
+    dat_check_parser = subparsers.add_parser("dat-check", help="Compare a ROM folder against one or more MAME XML DAT files to identify which version the romset is from")
+    dat_check_parser.add_argument("folder", help="ROM folder to check (e.g. /mnt/storage/roms/arcade)")
+    dat_check_parser.add_argument("dats", nargs="+", metavar="DAT", help="One or more MAME XML DAT files (.xml, .dat, or .zip containing one)")
+    dat_check_parser.add_argument("--detail", action="store_true", help="Print files in folder not found in any DAT")
+    dat_check_parser.add_argument("--parents-only", dest="parents_only", action="store_true", help="Only match parent ROMs (ignore clones)")
     return parser
 
 
