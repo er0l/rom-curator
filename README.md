@@ -413,16 +413,30 @@ Output columns:
 
 | Column | Meaning |
 |--------|---------|
-| Machines (total) | All entries in the DAT including clones |
-| Parents only | Unique games (no regional variants or clones) |
-| Matched in folder | Files in the folder recognised by this DAT |
-| Folder match | **What fraction of your files this DAT recognises — highest value = your romset's source version** |
-| Collection % | How complete your folder is relative to this DAT's parent set |
+| Machines (total) | Every entry in the DAT — parent ROMs plus all clones. In MAME, most games have many variants (regions, revisions, bootlegs) each with their own ROM file, so this count is much higher than the number of unique games. |
+| Parents only | Unique games only — one entry per title, clones excluded. This is the real game count. |
+| Matched in folder | How many of the DAT's entries (parents + clones) are physically present in your folder. |
+| Folder match | **What % of your folder's files this DAT recognises.** This is the version indicator — the DAT with the highest value is most likely the source your romset came from. 100% means every file in your folder is known to this DAT. |
+| Collection % | What % of the DAT's parent games you have. Low % = a small curated selection; 100% = a complete set. |
+| Notes | Warnings: identical machine list to another DAT (mislabelled zip), or `← best match` when comparing multiple DATs. |
+
+**Folder match vs Collection %** answer different questions:
+- *"Which MAME version is my romset from?"* → look at **Folder match** (highest = source version)
+- *"How complete is my collection?"* → look at **Collection %**
+
+Example: a folder with 373 hand-picked games from a mame2016 romset would show ~98% Folder match for mame2016 (almost all files recognised) but only ~3% Collection % (373 out of 10,797 possible parent games).
 
 When multiple DATs are compared, the best-matching one is flagged with `← best match` and a summary line is printed:
 
 ```
 Best match: mame2016 — 98% of folder files recognised (368 / 373)
+```
+
+A perfect match (100% Folder match, 0 unmatched) confirms the folder is a complete romset for that version:
+
+```
+│ mame2003-plus │  5257 │  2926 │  5256 │  100% │  100% │
+Unmatched in any DAT: 0 files
 ```
 
 DATs with identical machine lists are automatically flagged (e.g. a mislabelled zip).
