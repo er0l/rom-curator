@@ -267,6 +267,7 @@ Profile `selection:` keys that drive export filtering:
 | `arcade_dedupe` | bool | `true` | Group MAME clones by parent — export one ROM per unique game |
 | `arcade_skip_non_playable` | bool | `true` | Skip BIOS chips, devices, and mechanical (AWP/fruit machine) ROMs |
 | `arcade_exclude_controls` | list | `[]` | Skip arcade games needing listed MAME control types (e.g. `[wheel, spinner, trackball, lightgun]`). Has no effect until `arcade-import` is run from a full `mame -listxml` source. |
+| `mame_versions` | list | *(off)* | Restrict arcade ROMs to machines present in these versioned romsets (e.g. `[mame2003, mame2003-plus]`). Requires `arcade-import --version` for each listed version. Non-arcade systems are unaffected. |
 | `year_from` | int | *(off)* | Skip games released before this year. Games with no year data always pass. Can be overridden per-run with `--from YEAR`. |
 | `year_to` | int | *(off)* | Skip games released after this year. Games with no year data always pass. Can be overridden per-run with `--to YEAR`. |
 | `min_rating` | number | *(off)* | Skip ROMs with a real IGDB score below this value. Unrated ROMs (`total_rating = 0`) and ROMs with no ROMM record always pass. |
@@ -323,6 +324,32 @@ python3 romcurator.py arcade-import --xml /path/to/mame.xml   # use cached XML f
 python3 romcurator.py arcade-import --reset      # wipe mame_machines before importing
 ```
 
+#### MAME version romset filtering
+
+On lower-end devices (RK3326 and similar) only specific libretro cores work — typically `mame2003_libretro` and `mame2003_plus_libretro`, each of which supports a fixed frozen romset. Import those XMLs under a version label to restrict exports to compatible ROMs only:
+
+```bash
+python3 romcurator.py arcade-import --xml mame2003.xml      --version mame2003
+python3 romcurator.py arcade-import --xml mame2003-plus.xml --version mame2003-plus
+```
+
+Then filter at export time:
+
+```bash
+python3 romcurator.py build r36s --mame-versions mame2003,mame2003-plus --execute
+```
+
+Or bake the filter into the profile permanently:
+
+```yaml
+selection:
+  mame_versions: [mame2003, mame2003-plus]
+```
+
+`--version` imports only store machine names (lightweight). Full metadata (for `arcade-analyze` stats and control-type filtering) still requires a separate unversioned `arcade-import` from a full MAME XML.
+
+The `r36s`, `r39max`, and `odroidgosuper` profiles include `mame_versions` by default.
+
 Generates a pre-computed `mame.xml` with:
 
 ```bash
@@ -378,6 +405,16 @@ python3 romcurator.py dedup-roms --system snes --execute
 python3 romcurator.py clean-media
 python3 romcurator.py clean-media --systems snes --execute
 python3 romcurator.py clean-media --systems snes,nes --media-folders boxart,wheel --execute
+python3 romcurator.py gen-m3u
+python3 romcurator.py gen-m3u --systems psx,ps2,dreamcast
+python3 romcurator.py gen-m3u --execute
+python3 romcurator.py scan-systems
+python3 romcurator.py compare-systems r36s
+python3 romcurator.py profile-add r36s amiga500,amiga1200
+python3 romcurator.py profile-remove r36s megadrive
+python3 romcurator.py arcade-import --xml mame2003.xml --version mame2003
+python3 romcurator.py arcade-import --xml mame2003-plus.xml --version mame2003-plus
+python3 romcurator.py build r36s --mame-versions mame2003,mame2003-plus --execute
 ```
 
 Useful overrides (e.g. for testing against a small sample tree):
@@ -469,11 +506,13 @@ rom-curator/
 │   ├── profiles.py         ← profile loader and screen-fit display
 │   ├── reporting.py        ← inventory and arcade reports
 │   ├── romm_sync.py        ← ROMM API sync
-│   └── scanner.py          ← streaming filesystem walker
+│   ├── scanner.py          ← streaming filesystem walker
+│   └── system_sync.py      ← system folder discovery and profile comparison
 ├── tools/
 │   ├── zip_roms.py         ← compress uncompressed ROMs to zip
 │   ├── dedup_roms.py       ← move duplicate-region ROMs to recycle bin
-│   └── clean_media.py      ← remove orphaned media/image/video files
+│   ├── clean_media.py      ← remove orphaned media/image/video files
+│   └── gen_m3u.py          ← generate .m3u playlists for multi-disc games
 ├── mappings/
 │   └── systems.yaml        ← canonical system → target folder matrix
 ├── profiles/
@@ -554,9 +593,37 @@ System files (`Thumbs.db`, `.DS_Store`, `gamelist.xml`, etc.) are always skipped
 Run `inventory --systems <system>` first to ensure the database is up to date
 before executing, so recently added ROMs are not incorrectly flagged.
 
+#### gen-m3u
+
+Generate `.m3u` playlist files for multi-disc games. The tool reads the
+inventory database for ROMs that have a disc tag (`Disc 1`, `Side A`, `Tape 2`,
+…) and writes one `.m3u` per game into the system's root folder.
+
+```bash
+python3 romcurator.py gen-m3u                          # dry-run all systems
+python3 romcurator.py gen-m3u --systems psx,ps2        # dry-run specific systems
+python3 romcurator.py gen-m3u --execute                # write .m3u files
+```
+
+Each `.m3u` lists disc filenames in disc-number order. Existing files are
+compared against the expected content and shown as `CREATE`, `UPDATE`, or
+`UNCHANGED` — only files that actually need changing are written.
+
+Folder-based systems (switch, scummvm, etc.) are skipped; `.m3u` is relevant
+for flat disc-image systems (PSX, PS2, Saturn, Dreamcast with CHDs, etc.).
+
+Disc naming patterns recognised by the parser:
+
+| Pattern | Examples |
+|---------|---------|
+| Standard No-Intro | `(Disc 1)`, `(Disk 2)`, `(Side A)`, `(Tape 1)`, `(Part 2)` |
+| Region before disc | `(NA - Disc 1)`, `(EU - Disc 2)` |
+| Disc before region | `(Disc 1 - EU)`, `(Disc 2 - English Patch)` |
+| Amiga / C64 / MSX style | `Disk 1`, `Disk A`, `Disk1`, `DiskA`, `Disk 0` |
+
 #### Recycle bin
 
-All three archive maintenance tools move files to the recycle bin under their
+All four archive maintenance tools move files to the recycle bin under their
 original relative path:
 
 ```
@@ -564,6 +631,56 @@ original relative path:
 ```
 
 The recycle bin path is configured under `paths.recycle_bin` in `config.yaml` (default: `/mnt/storage/recycle_bin`).
+
+### System Discovery
+
+#### scan-systems
+
+Scan the ROM root for subdirectories and compare against `mappings/systems.yaml`:
+
+```bash
+python3 romcurator.py scan-systems
+```
+
+Reports three categories:
+
+| Category | Meaning |
+|----------|---------|
+| Known systems — folder present | In mappings and directory exists on disk |
+| Known systems — folder absent | Defined in mappings but no directory found |
+| Unknown folders | Directory exists but not in mappings — add to mappings or exclude |
+
+Hidden directories (starting with `.`) are skipped automatically via
+`scan.ignore_hidden`. Additional folders can be excluded permanently in
+`config.yaml`:
+
+```yaml
+scan:
+  exclude_system_folders: [.curator, .exports]
+```
+
+#### compare-systems
+
+Compare discovered system folders against one profile's `include_systems` list:
+
+```bash
+python3 romcurator.py compare-systems r36s
+```
+
+Shows three categories with ready-to-run hint commands:
+
+| Category | Action hint |
+|----------|------------|
+| Included (folder present) | Already in sync |
+| Not in profile but folder present | `profile-add` hint printed |
+| In profile but folder missing | `profile-remove` hint printed |
+
+Use `profile-add` and `profile-remove` to act on the suggestions:
+
+```bash
+python3 romcurator.py profile-add r36s amiga500,amiga1200
+python3 romcurator.py profile-remove r36s megadrive
+```
 
 ## Not Implemented Yet
 
