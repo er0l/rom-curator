@@ -196,6 +196,9 @@ macintosh:
   nas: macintosh
   display: {aspect: "4:3", orientation: landscape}
 
+mame2003-plus:
+  nas: mame2003-plus
+
 mastersystem:
   nas: mastersystem
   display: {aspect: "4:3", orientation: landscape}

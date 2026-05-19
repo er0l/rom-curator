@@ -550,7 +550,7 @@ def _choose_arcade_preferred(candidates):
 
 # Arcade sub-system names produced by arcade.py classify_sourcefile().
 # Used to decide whether arcade-specific filtering applies to a system.
-_ARCADE_SUBSYSTEMS = frozenset({"cps1", "cps2", "cps3", "neogeo", "naomi", "naomi2", "atomiswave", "mame"})
+_ARCADE_SUBSYSTEMS = frozenset({"cps1", "cps2", "cps3", "neogeo", "naomi", "naomi2", "atomiswave", "mame", "mame2003-plus"})
 
 
 def _choose_preferred(rows, preferred_regions: list[str]):

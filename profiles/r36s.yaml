@@ -21,7 +21,7 @@ controls:
 
 include_systems:
   - amiga
-  - arcade
+  - mame2003-plus
   - c64
   - cps1
   - cps2
@@ -83,9 +83,8 @@ selection:
   # Wheel/spinner games are unplayable; lightgun requires a screen you can aim at.
   # Mouse-controlled games are excluded since there is no pointer device.
   arcade_exclude_controls: [wheel, spinner, trackball, lightgun, mouse, pedal]
-  # Restrict arcade ROMs to machines supported by the mame2003/mame2003-plus
-  # libretro cores, which are the only well-performing options on RK3326 hardware.
-  mame_versions: [mame2003, mame2003-plus]
+  # mame_versions filter not needed — mame2003-plus folder already contains
+  # exactly the right romset for this hardware.
   # ROMM metadata filters — only applied to ROMs that have a romm-sync record.
   # Games with no ROMM data are never penalised by these filters.
   # year_from: 1980    # only include games released from this year
