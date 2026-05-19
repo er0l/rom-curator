@@ -83,6 +83,7 @@ def create_export_plan(
     roms_root: str | Path | None = None,
     systems_filter: list[str] | None = None,
     mame_versions: list[str] | None = None,
+    layouts: dict[str, dict[str, list[str]]] | None = None,
 ) -> ExportPlan:
     target = str(profile.get("target"))
     export_root = Path(exports_root).expanduser() / profile_name
@@ -148,7 +149,7 @@ def create_export_plan(
             grouped.setdefault(effective, {}).setdefault(group_key, []).append(row)
 
     for system in systems:
-        target_alias = get_preferred_alias(mappings, system, target)
+        target_alias = get_preferred_alias(layouts or {}, system, target)
         summary = plan.summaries.setdefault(system, ExportSystemSummary())
         if not target_alias:
             summary.no_target_alias += summary.seen

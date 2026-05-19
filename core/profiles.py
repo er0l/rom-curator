@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .mappings import TARGETS, get_target_aliases, get_system_display, screen_fit
+from .mappings import get_target_aliases, get_system_display, screen_fit
 
 try:
     from rich.console import Console
@@ -52,12 +52,18 @@ def load_profiles(directory: str | Path) -> dict[str, dict[str, object]]:
     return profiles
 
 
-def validate_profile(profile: dict[str, object], mappings: dict[str, dict[str, object]]) -> list[ProfileIssue]:
+def validate_profile(
+    profile: dict[str, object],
+    mappings: dict[str, dict[str, object]],
+    layouts: dict[str, dict[str, list[str]]] | None = None,
+) -> list[ProfileIssue]:
     issues: list[ProfileIssue] = []
     name = str(profile.get("name") or "(unnamed)")
     target = profile.get("target")
-    if not isinstance(target, str) or target not in TARGETS:
-        issues.append(ProfileIssue("error", f"{name}: target must be one of {', '.join(TARGETS)}"))
+    known_targets = sorted(layouts.keys()) if layouts else []
+    if not isinstance(target, str) or (known_targets and target not in known_targets):
+        label = ", ".join(known_targets) if known_targets else "a valid target"
+        issues.append(ProfileIssue("error", f"{name}: target must be one of {label}"))
         return issues
 
     include_systems = _system_list(profile.get("include_systems"), mappings)
@@ -77,11 +83,12 @@ def validate_profile(profile: dict[str, object], mappings: dict[str, dict[str, o
     for system in unknown:
         issues.append(ProfileIssue("error", f"{name}: unknown system '{system}'"))
 
-    for system in active_systems:
-        if system not in mappings:
-            continue
-        if not get_target_aliases(mappings, system, target):
-            issues.append(ProfileIssue("warning", f"{name}: '{system}' has no {target} alias"))
+    if layouts is not None and isinstance(target, str):
+        for system in active_systems:
+            if system not in mappings:
+                continue
+            if not get_target_aliases(layouts, system, target):
+                issues.append(ProfileIssue("warning", f"{name}: '{system}' has no {target} alias"))
 
     if profile.get("include_systems") != "all":
         overlap = sorted(set(include_systems) & set(exclude_systems))
@@ -94,8 +101,12 @@ def validate_profile(profile: dict[str, object], mappings: dict[str, dict[str, o
 def validate_profiles(
     profiles: dict[str, dict[str, object]],
     mappings: dict[str, dict[str, object]],
+    layouts: dict[str, dict[str, list[str]]] | None = None,
 ) -> dict[str, list[ProfileIssue]]:
-    return {name: validate_profile(profile, mappings) for name, profile in sorted(profiles.items())}
+    return {
+        name: validate_profile(profile, mappings, layouts)
+        for name, profile in sorted(profiles.items())
+    }
 
 
 def selected_systems(profile: dict[str, object], mappings: dict[str, dict[str, object]]) -> list[str]:
@@ -148,6 +159,7 @@ def print_profile_detail(
     profile: dict[str, object],
     mappings: dict[str, dict[str, object]],
     issues: list[ProfileIssue],
+    layouts: dict[str, dict[str, list[str]]] | None = None,
 ) -> None:
     console = Console() if Console else None
     systems = selected_systems(profile, mappings)
@@ -160,7 +172,7 @@ def print_profile_detail(
     rows = [
         (
             system,
-            ", ".join(get_target_aliases(mappings, system, target)) or "-",
+            ", ".join(get_target_aliases(layouts or {}, system, target)) or "-",
             screen_fit(get_system_display(mappings, system), screen_w, screen_h) if has_screen else "-",
         )
         for system in systems

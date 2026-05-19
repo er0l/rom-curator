@@ -55,6 +55,7 @@ def run_romm_sync(
     mappings: dict[str, dict[str, object]],
     *,
     reset: bool = False,
+    layouts: dict[str, dict[str, list[str]]] | None = None,
 ) -> RommSyncSummary:
     paths = config.get("paths", {})
     if not isinstance(paths, dict):
@@ -78,7 +79,7 @@ def run_romm_sync(
     page_size = int(romm_config.get("page_size", 200))
     database_path = Path(str(paths["database"])).expanduser()
 
-    slug_to_canonical = _build_slug_index(mappings)
+    slug_to_canonical = _build_slug_index(layouts)
     console = Console() if Console else None
     headers = {"Authorization": f"Bearer {romm_token}", "Accept": "application/json"}
 
@@ -286,19 +287,18 @@ def _check_connectivity(client: httpx.Client, romm_url: str) -> None:
         raise RuntimeError(f"Cannot reach ROMM at {romm_url}: {exc}") from exc
 
 
-def _build_slug_index(mappings: dict[str, dict[str, object]]) -> dict[str, str]:
+def _build_slug_index(
+    layouts: dict[str, dict[str, list[str]]] | None,
+) -> dict[str, str]:
     """Build reverse lookup: romm platform_slug → canonical system name."""
     index: dict[str, str] = {}
-    for canonical, row in mappings.items():
-        if not isinstance(row, dict):
-            continue
-        romm_aliases = row.get("romm")
-        if isinstance(romm_aliases, list):
-            for alias in romm_aliases:
-                if alias:
-                    index[str(alias)] = canonical
-        elif isinstance(romm_aliases, str) and romm_aliases:
-            index[romm_aliases] = canonical
+    if not layouts:
+        return index
+    romm_entry = layouts.get("romm", {})
+    for canonical, aliases in romm_entry.items():
+        for alias in aliases:
+            if alias:
+                index[str(alias)] = canonical
     return index
 
 

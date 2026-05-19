@@ -1,848 +1,400 @@
-# Canonical system mapping matrix.
+# Canonical system definitions.
 #
-# Keys are ROM Curator canonical names. The `nas` value points to the current
-# top-level folder in the master archive. Target lists define one or more folder
-# names accepted by each ecosystem, with the first value treated as preferred.
-
-3ds:
-  nas: 3ds
-  romm: [3ds]
-  emudeck: [n3ds]
-  r36s: []
-  batocera: [3ds]
+# Keys are ROM Curator canonical names.  Each entry stores only the
+# master-archive folder name (nas) and optional metadata flags/display hints.
+# Per-device folder aliases live in mappings/layouts/<target>.yaml.
 
 3do:
   nas: 3do
-  romm: [3do]
-  emudeck: [3do]
-  r36s: [3do]
-  batocera: [3do]
 
-amiga:
-  nas: amiga
-  romm: [amiga]
-  emudeck: [amiga]
-  r36s: [amiga]
-  batocera: [amiga500, amiga1200]
-
-amigacd32:
-  nas: amigacd32
-  romm: [amigacd32, amiga-cd32]
-  emudeck: [amigacd32]
-  r36s: [amigacd32]
-  batocera: [amigacd32]
-
-amstradcpc:
-  nas: amstradcpc
-  romm: [amstradcpc]
-  emudeck: [amstradcpc]
-  r36s: [amstradcpc]
-  batocera: [amstradcpc]
-
-amstradgx4000:
-  nas: amstradgx4000
-  romm: [amstradgx4000]
-  emudeck: [amstradgx4000]
-  r36s: [amstradgx4000]
-  batocera: [amstradgx4000]
+3ds:
+  nas: 3ds
 
 alg:
   nas: alg
-  romm: [alg]
-  emudeck: []
-  r36s: [alg]
-  batocera: []
+
+amiga:
+  nas: amiga
+
+amigacd32:
+  nas: amigacd32
+
+amstradcpc:
+  nas: amstradcpc
+
+amstradgx4000:
+  nas: amstradgx4000
 
 android:
   nas: android
-  romm: [android]
-  emudeck: []
-  r36s: []
-  batocera: []
 
 arcade:
   nas: arcade
-  romm: [arcade]
-  emudeck: [arcade, mame]
-  r36s: [arcade, mame, mame2003, fbneo, hbmame, varcade]
-  batocera: [mame, arcade]
   display: {orientation: mixed}
 
 astrocde:
   nas: astrocde
-  romm: [astrocde]
-  emudeck: []
-  r36s: [astrocde]
-  batocera: [astrocde]
 
 atari2600:
   nas: atari2600
-  romm: [atari2600]
-  emudeck: [atari2600]
-  r36s: [atari2600]
-  batocera: [atari2600]
   display: {aspect: "4:3", orientation: landscape}
 
 atari5200:
   nas: atari5200
-  romm: [atari5200]
-  emudeck: [atari5200]
-  r36s: [atari5200]
-  batocera: [atari5200]
   display: {aspect: "4:3", orientation: landscape}
 
 atari7800:
   nas: atari7800
-  romm: [atari7800]
-  emudeck: [atari7800]
-  r36s: [atari7800]
-  batocera: [atari7800]
   display: {aspect: "4:3", orientation: landscape}
 
 atari800:
   nas: atari800
-  romm: [atari800]
-  emudeck: [atari800]
-  r36s: [atari800]
-  batocera: [atari800]
 
 atarist:
   nas: atarist
-  romm: [atarist]
-  emudeck: [atarist]
-  r36s: [atarist]
-  batocera: [atarist]
 
 atarixegs:
   nas: atarixegs
-  romm: [atarixegs]
-  emudeck: []
-  r36s: [atarixegs]
-  batocera: [atarixegs]
 
 atomiswave:
   nas: atomiswave
-  romm: [atomiswave]
-  emudeck: [atomiswave]
-  r36s: [atomiswave]
-  batocera: [atomiswave]
   display: {aspect: "4:3", orientation: landscape}
 
 bios:
   nas: bios
-  romm: []
-  emudeck: [bios]
-  r36s: [bios]
-  batocera: [bios]
+
+c16:
+  nas: c16
 
 c64:
   nas: c64
-  romm: [c64]
-  emudeck: [c64]
-  r36s: [c64]
-  batocera: [c64]
   display: {aspect: "4:3", orientation: landscape}
 
 c128:
   nas: c128
-  romm: [c128]
-  emudeck: []
-  r36s: [c128]
-  batocera: [c128]
-
-c16:
-  nas: c16
-  romm: [c16]
-  emudeck: []
-  r36s: [c16]
-  batocera: [c16]
 
 capcom:
   nas: capcom
-  romm: [capcom]
-  emudeck: []
-  r36s: [capcom]
-  batocera: []
 
 cdi:
   nas: cdi
-  romm: [cdi]
-  emudeck: []
-  r36s: [cdi]
-  batocera: [cdi]
 
 channelf:
   nas: channelf
-  romm: [channelf]
-  emudeck: []
-  r36s: [channelf]
-  batocera: [channelf]
 
 coleco:
   nas: coleco
-  romm: [coleco]
-  emudeck: []
-  r36s: [coleco]
-  batocera: [colecovision]
 
 cps1:
   nas: cps1
-  romm: [cps1]
-  emudeck: [cps1]
-  r36s: [cps1]
-  batocera: [cps1]
   display: {orientation: mixed}
 
 cps2:
   nas: cps2
-  romm: [cps2]
-  emudeck: [cps2]
-  r36s: [cps2]
-  batocera: [cps2]
   display: {orientation: mixed}
 
 cps3:
   nas: cps3
-  romm: [cps3]
-  emudeck: [cps3]
-  r36s: [cps3]
-  batocera: [cps3]
   display: {orientation: mixed}
 
 daphne:
   nas: daphne
-  romm: [daphne]
-  emudeck: [daphne]
-  r36s: [daphne]
-  batocera: [daphne]
 
 doom:
   nas: doom
-  romm: [doom]
-  emudeck: []
-  r36s: [doom]
-  batocera: [doom]
-
-dreamcast:
-  folder_based: true
-  subfolder_exclude: true
-  nas: dreamcast
-  romm: [dreamcast, dc]
-  emudeck: [dreamcast]
-  r36s: [dreamcast]
-  batocera: [dreamcast]
-  display: {aspect: "4:3", orientation: landscape}
 
 dos:
   folder_based: true
   subfolder_exclude: true
   nas: dos
-  romm: [dos]
-  emudeck: [dos]
-  r36s: [dos]
-  batocera: [dos]
   display: {aspect: "4:3", orientation: landscape}
 
-gamecube:
-  nas: gamecube
-  romm: [gamecube, ngc]
-  emudeck: [gc, gamecube]
-  r36s: [gamecube]
-  batocera: [gamecube]
+dreamcast:
+  folder_based: true
+  subfolder_exclude: true
+  nas: dreamcast
   display: {aspect: "4:3", orientation: landscape}
-
-gamegear:
-  nas: gamegear
-  romm: [gamegear]
-  emudeck: [gamegear]
-  r36s: [gamegear, gamegearh]
-  batocera: [gamegear]
-  display: {aspect: "10:9", orientation: landscape}
-
-gb:
-  nas: gb
-  romm: [gb]
-  emudeck: [gb]
-  r36s: [gb, gbh]
-  batocera: [gb]
-  display: {aspect: "10:9", orientation: landscape}
-
-gba:
-  nas: gba
-  romm: [gba]
-  emudeck: [gba]
-  r36s: [gba, gbah]
-  batocera: [gba]
-  display: {aspect: "3:2", orientation: landscape}
-
-gbc:
-  nas: gbc
-  romm: [gbc]
-  emudeck: [gbc]
-  r36s: [gbc, gbch]
-  batocera: [gbc]
-  display: {aspect: "10:9", orientation: landscape}
 
 easyrpg:
   nas: easyrpg
-  romm: [easyrpg]
-  emudeck: []
-  r36s: [easyrpg]
-  batocera: [easyrpg]
 
 famicom:
   nas: famicom
-  romm: [famicom]
-  emudeck: [famicom]
-  r36s: [famicom]
-  batocera: [famicom]
   display: {aspect: "4:3", orientation: landscape}
 
 fds:
   nas: fds
-  romm: [fds]
-  emudeck: [fds]
-  r36s: [fds]
-  batocera: [fds]
   display: {aspect: "4:3", orientation: landscape}
 
 fmtownsux:
   nas: fmtownsux
-  romm: [fmtownsux]
-  emudeck: []
-  r36s: [fmtownsux]
-  batocera: [fmtowns]
 
 freej2me:
   nas: freej2me
-  romm: [freej2me]
-  emudeck: []
-  r36s: [freej2me]
-  batocera: []
 
 gameandwatch:
   nas: gameandwatch
-  romm: [gameandwatch]
-  emudeck: [gameandwatch]
-  r36s: [gameandwatch, gw]
-  batocera: [gameandwatch]
+
+gamecube:
+  nas: gamecube
+  display: {aspect: "4:3", orientation: landscape}
+
+gamegear:
+  nas: gamegear
+  display: {aspect: "10:9", orientation: landscape}
+
+gb:
+  nas: gb
+  display: {aspect: "10:9", orientation: landscape}
+
+gba:
+  nas: gba
+  display: {aspect: "3:2", orientation: landscape}
+
+gbc:
+  nas: gbc
+  display: {aspect: "10:9", orientation: landscape}
+
+intellivision:
+  nas: intellivision
+
+j2me:
+  nas: j2me
 
 jaguar:
   nas: jaguar
-  romm: [jaguar]
-  emudeck: [atarijaguar]
-  r36s: [atarijaguar, jaguar]
-  batocera: [atarijaguar]
+
+lowresnx:
+  nas: lowresnx
 
 lynx:
   nas: lynx
-  romm: [lynx]
-  emudeck: [atarilynx]
-  r36s: [atarilynx, lynx]
-  batocera: [atarilynx]
   display: {aspect: "3:2", orientation: landscape}
 
 mastersystem:
   nas: mastersystem
-  romm: [mastersystem, sms]
-  emudeck: [mastersystem]
-  r36s: [mastersystem]
-  batocera: [mastersystem]
   display: {aspect: "4:3", orientation: landscape}
 
 megacd:
   folder_based: true
   subfolder_exclude: true
   nas: megacd
-  romm: [megacd, segacd]
-  emudeck: [segacd]
-  r36s: [segacd, megacd]
-  batocera: [segacd]
   display: {aspect: "4:3", orientation: landscape}
 
 megadrive:
   nas: megadrive
-  romm: [megadrive, genesis, genesis-slash-megadrive]
-  emudeck: [genesis]
-  r36s: [megadrive, genesis, genh, megadrive-japan, megadrivemsu]
-  batocera: [megadrive]
   display: {aspect: "4:3", orientation: landscape}
-
-intellivision:
-  nas: intellivision
-  romm: [intellivision]
-  emudeck: []
-  r36s: [intellivision]
-  batocera: [intellivision]
-
-j2me:
-  nas: j2me
-  romm: [j2me]
-  emudeck: []
-  r36s: [j2me]
-  batocera: []
-
-lowresnx:
-  nas: lowresnx
-  romm: [lowresnx]
-  emudeck: []
-  r36s: [lowresnx]
-  batocera: [lowresnx]
 
 megaduck:
   nas: megaduck
-  romm: [megaduck]
-  emudeck: []
-  r36s: [megaduck]
-  batocera: [megaduck]
 
 msx:
   nas: msx
-  romm: [msx]
-  emudeck: [msx]
-  r36s: [msx]
-  batocera: [msx1]
 
 msx2:
   nas: msx2
-  romm: [msx2]
-  emudeck: [msx2]
-  r36s: [msx2]
-  batocera: [msx2]
 
 n64:
   nas: n64
-  romm: [n64]
-  emudeck: [n64]
-  r36s: [n64]
-  batocera: [n64]
-  display: {aspect: "4:3", orientation: landscape}
-
-nds:
-  nas: nds
-  romm: [nds]
-  emudeck: [nds]
-  r36s: [nds]
-  batocera: [nds]
   display: {aspect: "4:3", orientation: landscape}
 
 n64dd:
   nas: n64dd
-  romm: [n64dd]
-  emudeck: [n64dd]
-  r36s: [n64dd]
-  batocera: [n64dd]
 
 naomi:
   nas: naomi
-  romm: [naomi]
-  emudeck: [naomi]
-  r36s: [naomi]
-  batocera: [naomi]
   display: {orientation: mixed}
+
+nds:
+  nas: nds
+  display: {aspect: "4:3", orientation: landscape}
 
 neogeo:
   nas: neogeo
-  romm: [neogeo, neogeoaes]
-  emudeck: [neogeo]
-  r36s: [neogeo]
-  batocera: [neogeo]
   display: {orientation: mixed}
 
 neogeocd:
   nas: neogeocd
-  romm: [neogeocd]
-  emudeck: [neogeocd]
-  r36s: [neogeocd, neocd]
-  batocera: [neogeocd]
   display: {aspect: "4:3", orientation: landscape}
 
 nes:
   nas: nes
-  romm: [nes]
-  emudeck: [nes]
-  r36s: [nes, nesh]
-  batocera: [nes]
   display: {aspect: "4:3", orientation: landscape}
 
 ngp:
   nas: ngp
-  romm: [ngp]
-  emudeck: [ngp]
-  r36s: [ngp]
-  batocera: [ngp]
   display: {aspect: "1:1", orientation: landscape}
 
 ngpc:
   nas: ngpc
-  romm: [ngpc]
-  emudeck: [ngpc]
-  r36s: [ngpc]
-  batocera: [ngpc]
   display: {aspect: "1:1", orientation: landscape}
 
 odyssey:
   nas: odyssey
-  romm: [odyssey]
-  emudeck: []
-  r36s: [odyssey]
-  batocera: []
 
 odyssey2:
   nas: odyssey2
-  romm: [odyssey2]
-  emudeck: []
-  r36s: [odyssey2]
-  batocera: [odyssey2]
 
 openbor:
   nas: openbor
-  romm: [openbor]
-  emudeck: []
-  r36s: [openbor]
-  batocera: [openbor]
+
+pc:
+  nas: pc
+
+pc98:
+  nas: pc98
 
 pcengine:
   nas: pcengine
-  romm: [pcengine, tg16]
-  emudeck: [pcengine]
-  r36s: [pcengine, tg16, turbografx]
-  batocera: [pcengine]
   display: {aspect: "4:3", orientation: landscape}
 
 pcenginecd:
   nas: pcenginecd
-  romm: [pcenginecd, turbografx-cd]
-  emudeck: [pcenginecd]
-  r36s: [pcenginecd, tg16cd, turbografxcd]
-  batocera: [pcenginecd]
   display: {aspect: "4:3", orientation: landscape}
-
-pc:
-  nas: pc
-  romm: [pc]
-  emudeck: []
-  r36s: [pc]
-  batocera: []
-
-pc98:
-  nas: pc98
-  romm: [pc98]
-  emudeck: []
-  r36s: [pc98]
-  batocera: [pc98]
 
 pcfx:
   nas: pcfx
-  romm: [pcfx]
-  emudeck: [pcfx]
-  r36s: [pcfx]
-  batocera: [pcfx]
 
 pgm2:
   nas: pgm2
-  romm: [pgm2]
-  emudeck: []
-  r36s: [pgm2]
-  batocera: []
 
 pico8:
   nas: pico-8
-  romm: [pico-8]
-  emudeck: [pico-8]
-  r36s: [pico-8]
-  batocera: [pico8]
 
 pokemini:
   nas: pokemini
-  romm: [pokemini]
-  emudeck: [pokemini]
-  r36s: [pokemini, pokemonmini]
-  batocera: [pokemini]
 
 ports:
   nas: ports
-  romm: [ports]
-  emudeck: []
-  r36s: [ports]
-  batocera: [ports]
-
-psp:
-  nas: psp
-  romm: [psp]
-  emudeck: [psp]
-  r36s: [psp, pspminis]
-  batocera: [psp]
-  display: {aspect: "16:9", orientation: landscape}
-
-psvita:
-  nas: psvita
-  romm: [psvita]
-  emudeck: [psvita]
-  r36s: []
-  batocera: [psvita]
-
-psx:
-  nas: psx
-  romm: [psx]
-  emudeck: [psx]
-  r36s: [psx]
-  batocera: [psx]
-  display: {aspect: "4:3", orientation: landscape}
 
 ps2:
   nas: ps2
-  romm: [ps2]
-  emudeck: [ps2]
-  r36s: []
-  batocera: [ps2]
   display: {aspect: "4:3", orientation: landscape}
 
 ps3:
   nas: ps3
-  romm: [ps3]
-  emudeck: [ps3]
-  r36s: []
-  batocera: [ps3]
   display: {aspect: "16:9", orientation: landscape}
 
-saturn:
-  nas: saturn
-  romm: [saturn]
-  emudeck: [saturn]
-  r36s: [saturn]
-  batocera: [saturn]
+psp:
+  nas: psp
+  display: {aspect: "16:9", orientation: landscape}
+
+psvita:
+  nas: psvita
+
+psx:
+  nas: psx
   display: {aspect: "4:3", orientation: landscape}
 
 satellaview:
   nas: satellaview
-  romm: [satellaview]
-  emudeck: [satellaview]
-  r36s: [satellaview]
-  batocera: [satellaview]
+
+saturn:
+  nas: saturn
+  display: {aspect: "4:3", orientation: landscape}
 
 sc3000:
   nas: sc-3000
-  romm: [sc-3000]
-  emudeck: []
-  r36s: [sc-3000]
-  batocera: [sc-3000]
 
 scummvm:
   folder_based: true
   subfolder_exclude: true
   nas: scummvm
-  romm: [scummvm]
-  emudeck: [scummvm]
-  r36s: [scummvm]
-  batocera: [scummvm]
   display: {aspect: "4:3", orientation: landscape}
 
 sega32x:
   nas: sega32x
-  romm: [sega32x, sega32]
-  emudeck: [sega32x]
-  r36s: [sega32x]
-  batocera: [sega32x]
-  display: {aspect: "4:3", orientation: landscape}
-
-snes:
-  nas: snes
-  romm: [snes]
-  emudeck: [snes]
-  r36s: [snes, sfc, snesh, snes-hacks, snesmsu1]
-  batocera: [snes]
-  display: {aspect: "4:3", orientation: landscape}
-
-supergrafx:
-  nas: supergrafx
-  romm: [supergrafx]
-  emudeck: [supergrafx]
-  r36s: [supergrafx, sgfx]
-  batocera: [supergrafx]
   display: {aspect: "4:3", orientation: landscape}
 
 sg1000:
   nas: sg-1000
-  romm: [sg-1000]
-  emudeck: [sg-1000]
-  r36s: [sg-1000]
-  batocera: [sg1000]
 
 sgb:
   nas: sgb
-  romm: [sgb]
-  emudeck: [sgb]
-  r36s: [sgb]
-  batocera: [sgb]
+
+snes:
+  nas: snes
+  display: {aspect: "4:3", orientation: landscape}
 
 solarus:
   nas: solarus
-  romm: [solarus]
-  emudeck: []
-  r36s: [solarus]
-  batocera: [solarus]
 
 sufami:
   nas: sufami
-  romm: [sufami]
-  emudeck: [sufami]
-  r36s: [sufami]
-  batocera: [sufami]
+
+supergrafx:
+  nas: supergrafx
+  display: {aspect: "4:3", orientation: landscape}
 
 supervision:
   nas: supervision
-  romm: [supervision]
-  emudeck: []
-  r36s: [supervision]
-  batocera: [supervision]
+
+switch:
+  folder_based: true
+  nas: switch
+  display: {aspect: "16:9", orientation: landscape}
 
 ti99:
   nas: ti99
-  romm: [ti99]
-  emudeck: []
-  r36s: [ti99]
-  batocera: [ti99]
 
 tic80:
   nas: tic-80
-  romm: [tic-80]
-  emudeck: []
-  r36s: [tic-80, tic80]
-  batocera: [tic80]
 
 uzebox:
   nas: uzebox
-  romm: [uzebox]
-  emudeck: []
-  r36s: [uzebox]
-  batocera: [uzebox]
 
 vectrex:
   nas: vectrex
-  romm: [vectrex]
-  emudeck: [vectrex]
-  r36s: [vectrex]
-  batocera: [vectrex]
 
 vic20:
   nas: vic20
-  romm: [vic20]
-  emudeck: []
-  r36s: [vic20]
-  batocera: [vic20]
 
 videopac:
   nas: videopac
-  romm: [videopac]
-  emudeck: []
-  r36s: [videopac]
-  batocera: [videopac]
-
-switch:
-  nas: switch
-  romm: [switch]
-  emudeck: [switch]
-  r36s: []
-  batocera: [switch]
-  display: {aspect: "16:9", orientation: landscape}
-  folder_based: true
 
 virtualboy:
   nas: virtualboy
-  romm: [virtualboy]
-  emudeck: [virtualboy]
-  r36s: [virtualboy]
-  batocera: [virtualboy]
   display: {aspect: "12:7", orientation: landscape}
 
 vmu:
   nas: vmu
-  romm: [vmu]
-  emudeck: [vmu]
-  r36s: [vmu]
-  batocera: [vmu]
-
-wii:
-  nas: wii
-  romm: [wii]
-  emudeck: [wii]
-  r36s: [wii]
-  batocera: [wii]
-  display: {aspect: "4:3", orientation: landscape}
-
-wolf:
-  nas: wolf
-  romm: [wolf]
-  emudeck: []
-  r36s: [wolf]
-  batocera: []
-
-wonderswan:
-  nas: wonderswan
-  romm: [wonderswan]
-  emudeck: [wonderswan]
-  r36s: [wonderswan]
-  batocera: [wonderswan]
-  display: {orientation: mixed}
-
-wonderswancolor:
-  nas: wonderswancolor
-  romm: [wonderswancolor]
-  emudeck: [wonderswancolor]
-  r36s: [wonderswancolor]
-  batocera: [wonderswancolor]
-  display: {orientation: mixed}
-
-x1:
-  nas: x1
-  romm: [x1]
-  emudeck: []
-  r36s: [x1]
-  batocera: [x1]
-
-x68000:
-  nas: x68000
-  romm: [x68000]
-  emudeck: [x68000]
-  r36s: [x68000]
-  batocera: [x68000]
-
-zx81:
-  nas: zx81
-  romm: [zx81]
-  emudeck: []
-  r36s: [zx81]
-  batocera: [zx81]
 
 wiiu:
   nas: wiiu
-  romm: [wiiu]
-  emudeck: [wiiu]
-  r36s: []
-  batocera: [wiiu]
   display: {aspect: "16:9", orientation: landscape}
+
+wii:
+  nas: wii
+  display: {aspect: "4:3", orientation: landscape}
 
 windows:
   folder_based: true
   subfolder_exclude: true
   nas: windows
-  romm: [windows, win]
-  emudeck: []
-  r36s: []
-  batocera: [windows]
+
+wolf:
+  nas: wolf
+
+wonderswan:
+  nas: wonderswan
+  display: {orientation: mixed}
+
+wonderswancolor:
+  nas: wonderswancolor
+  display: {orientation: mixed}
+
+x1:
+  nas: x1
+
+x68000:
+  nas: x68000
 
 xbox:
   nas: xbox
-  romm: [xbox]
-  emudeck: [xbox]
-  r36s: []
-  batocera: [xbox]
+
+zx81:
+  nas: zx81
 
 zxspectrum:
   nas: zxspectrum
-  romm: [zxspectrum, zxs]
-  emudeck: [zxspectrum]
-  r36s: [zxspectrum]
-  batocera: [zxspectrum]
   display: {aspect: "4:3", orientation: landscape}

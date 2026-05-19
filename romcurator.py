@@ -10,7 +10,13 @@ import sys
 
 from core.exporter import create_export_plan, execute_export_plan, print_export_plan, print_export_result
 from core.inventory import run_inventory
-from core.mappings import load_system_mappings, print_system_mappings, validate_system_mappings
+from core.mappings import (
+    load_layouts,
+    load_system_mappings,
+    print_system_mappings,
+    validate_layouts,
+    validate_system_mappings,
+)
 from core.profiles import (
     load_profiles,
     modify_profile_systems,
@@ -87,7 +93,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "romm-sync":
             from core.romm_sync import run_romm_sync
             mappings = _load_configured_mappings(config)
-            run_romm_sync(config, mappings, reset=args.reset)
+            layouts = _load_configured_layouts(config)
+            run_romm_sync(config, mappings, reset=args.reset, layouts=layouts)
         elif args.command == "arcade-import":
             from core.arcade import run_arcade_import
             run_arcade_import(config, xml_path=getattr(args, "xml", None), reset=args.reset, version=getattr(args, "version", None))
@@ -261,27 +268,30 @@ def run_mappings(config: dict[str, object]):
     mappings_path = paths.get("mappings") or Path(__file__).with_name("mappings") / "systems.yaml"
     mappings_path = _resolve_config_path(config, str(mappings_path))
     mappings = load_system_mappings(mappings_path)
-    issues = validate_system_mappings(mappings)
-    print_system_mappings(mappings, issues)
+    layouts = _load_configured_layouts(config)
+    issues = validate_system_mappings(mappings) + validate_layouts(layouts, mappings)
+    print_system_mappings(mappings, issues, layouts=layouts)
     return issues
 
 
 def run_profiles(config: dict[str, object]):
     mappings = _load_configured_mappings(config)
+    layouts = _load_configured_layouts(config)
     profiles = _load_configured_profiles(config)
-    validation = validate_profiles(profiles, mappings)
+    validation = validate_profiles(profiles, mappings, layouts)
     print_profiles(profiles, mappings, validation)
     return validation
 
 
 def run_profile(config: dict[str, object], name: str):
     mappings = _load_configured_mappings(config)
+    layouts = _load_configured_layouts(config)
     profiles = _load_configured_profiles(config)
     if name not in profiles:
         available = ", ".join(sorted(profiles)) or "(none)"
         raise KeyError(f"Unknown profile '{name}'. Available profiles: {available}")
-    issues = validate_profile(profiles[name], mappings)
-    print_profile_detail(name, profiles[name], mappings, issues)
+    issues = validate_profile(profiles[name], mappings, layouts)
+    print_profile_detail(name, profiles[name], mappings, issues, layouts)
     return issues
 
 
@@ -355,7 +365,8 @@ def _create_configured_export_plan(config: dict[str, object], name: str, *, syst
         available = ", ".join(sorted(profiles)) or "(none)"
         raise KeyError(f"Unknown profile '{name}'. Available profiles: {available}")
 
-    issues = validate_profile(profiles[name], mappings)
+    layouts = _load_configured_layouts(config)
+    issues = validate_profile(profiles[name], mappings, layouts)
     errors = [issue.message for issue in issues if issue.level == "error"]
     if errors:
         raise ValueError("; ".join(errors))
@@ -375,6 +386,7 @@ def _create_configured_export_plan(config: dict[str, object], name: str, *, syst
         roms_root=_resolve_config_path(config, str(roms_path)) if roms_path else None,
         systems_filter=systems,
         mame_versions=mame_versions,
+        layouts=layouts,
     )
 
 
@@ -384,6 +396,16 @@ def _load_configured_mappings(config: dict[str, object]) -> dict[str, dict[str, 
         raise ValueError("Config key 'paths' must be a mapping")
     mappings_path = paths.get("mappings") or Path(__file__).with_name("mappings") / "systems.yaml"
     return load_system_mappings(_resolve_config_path(config, str(mappings_path)))
+
+
+def _load_configured_layouts(config: dict[str, object]) -> dict[str, dict[str, list[str]]]:
+    """Load layout files from the layouts/ directory alongside systems.yaml."""
+    paths = config.get("paths", {})
+    if not isinstance(paths, dict):
+        return {}
+    mappings_path = paths.get("mappings") or Path(__file__).with_name("mappings") / "systems.yaml"
+    layouts_dir = _resolve_config_path(config, str(mappings_path)).parent / "layouts"
+    return load_layouts(layouts_dir)
 
 
 def _load_configured_profiles(config: dict[str, object]) -> dict[str, dict[str, object]]:

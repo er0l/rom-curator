@@ -13,14 +13,15 @@ except ImportError:  # pragma: no cover
     Table = None
 
 
-TARGETS = ("nas", "romm", "emudeck", "r36s", "batocera")
-
-
 @dataclass(frozen=True)
 class MappingIssue:
     level: str
     message: str
 
+
+# ---------------------------------------------------------------------------
+# systems.yaml — canonical definitions (nas + metadata only)
+# ---------------------------------------------------------------------------
 
 def load_system_mappings(path: str | Path) -> dict[str, dict[str, object]]:
     try:
@@ -42,8 +43,9 @@ def load_system_mappings(path: str | Path) -> dict[str, dict[str, object]]:
 
 
 def validate_system_mappings(mappings: dict[str, dict[str, object]]) -> list[MappingIssue]:
+    """Validate canonical system definitions (nas + metadata only)."""
     issues: list[MappingIssue] = []
-    aliases_by_target: dict[str, dict[str, str]] = {target: {} for target in TARGETS}
+    nas_seen: dict[str, str] = {}
 
     for canonical, row in sorted(mappings.items()):
         if not isinstance(canonical, str) or not canonical.strip():
@@ -53,56 +55,154 @@ def validate_system_mappings(mappings: dict[str, dict[str, object]]) -> list[Map
             issues.append(MappingIssue("error", f"{canonical}: mapping row must be a mapping"))
             continue
 
-        for target in TARGETS:
-            if target not in row:
-                issues.append(MappingIssue("error", f"{canonical}: missing target '{target}'"))
-                continue
+        nas = row.get("nas")
+        if not nas:
+            issues.append(MappingIssue("error", f"{canonical}: missing 'nas' folder name"))
+            continue
 
-            aliases = _as_alias_list(row[target])
-            if target == "nas" and len(aliases) != 1:
-                issues.append(MappingIssue("error", f"{canonical}: 'nas' must contain exactly one alias"))
-            if not aliases and target == "nas":
-                continue
-
-            for alias in aliases:
-                if not alias.strip():
-                    issues.append(MappingIssue("error", f"{canonical}: empty alias in '{target}'"))
-                    continue
-
-                previous = aliases_by_target[target].get(alias)
-                if previous and previous != canonical:
-                    issues.append(
-                        MappingIssue(
-                            "warning",
-                            f"{target}: alias '{alias}' is used by both '{previous}' and '{canonical}'",
-                        )
-                    )
-                aliases_by_target[target][alias] = canonical
+        nas_str = str(nas)
+        previous = nas_seen.get(nas_str)
+        if previous and previous != canonical:
+            issues.append(MappingIssue(
+                "warning",
+                f"nas folder '{nas_str}' is used by both '{previous}' and '{canonical}'",
+            ))
+        nas_seen[nas_str] = canonical
 
     return issues
 
 
-def get_target_aliases(
+# ---------------------------------------------------------------------------
+# layouts/ — per-device folder aliases
+# ---------------------------------------------------------------------------
+
+def load_layouts(layouts_dir: str | Path) -> dict[str, dict[str, list[str]]]:
+    """Load all layout YAML files from *layouts_dir*.
+
+    Returns a dict mapping ``target_name → {canonical → [alias, ...]}``.
+    Files are named ``<target>.yaml``.  Missing or empty lists are omitted.
+    """
+    try:
+        import yaml
+    except ImportError as exc:
+        raise RuntimeError("PyYAML is required to read layout files. Install curator/requirements.txt") from exc
+
+    layouts_path = Path(layouts_dir).expanduser()
+    layouts: dict[str, dict[str, list[str]]] = {}
+
+    if not layouts_path.exists():
+        return layouts
+
+    for layout_file in sorted(layouts_path.glob("*.yaml")):
+        target = layout_file.stem
+        with layout_file.open("r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh) or {}
+        if not isinstance(data, dict):
+            continue
+        entry: dict[str, list[str]] = {}
+        for canonical, value in data.items():
+            aliases = _as_alias_list(value)
+            if aliases:
+                entry[str(canonical)] = aliases
+        layouts[target] = entry
+
+    return layouts
+
+
+def validate_layouts(
+    layouts: dict[str, dict[str, list[str]]],
     mappings: dict[str, dict[str, object]],
+) -> list[MappingIssue]:
+    """Check that every canonical in any layout file exists in *mappings*."""
+    issues: list[MappingIssue] = []
+    for target, entry in sorted(layouts.items()):
+        alias_seen: dict[str, str] = {}
+        for canonical, aliases in sorted(entry.items()):
+            if canonical not in mappings:
+                issues.append(MappingIssue(
+                    "warning",
+                    f"layouts/{target}.yaml: unknown canonical '{canonical}'",
+                ))
+            for alias in aliases:
+                if not alias.strip():
+                    issues.append(MappingIssue(
+                        "error",
+                        f"layouts/{target}.yaml: empty alias for '{canonical}'",
+                    ))
+                    continue
+                previous = alias_seen.get(alias)
+                if previous and previous != canonical:
+                    issues.append(MappingIssue(
+                        "warning",
+                        f"layouts/{target}.yaml: alias '{alias}' used by both "
+                        f"'{previous}' and '{canonical}'",
+                    ))
+                alias_seen[alias] = canonical
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# Alias accessors — operate on *layouts*, not *mappings*
+# ---------------------------------------------------------------------------
+
+def get_target_aliases(
+    layouts: dict[str, dict[str, list[str]]],
     canonical: str,
     target: str,
 ) -> list[str]:
-    if target not in TARGETS:
-        raise ValueError(f"Unknown mapping target: {target}")
-    row = mappings.get(canonical)
-    if row is None:
-        raise KeyError(f"Unknown canonical system: {canonical}")
-    return _as_alias_list(row.get(target))
+    """Return folder aliases for *canonical* under *target* (e.g. ``'r36s'``).
+
+    Falls back to an empty list when the target layout has no entry.
+    """
+    entry = layouts.get(target, {})
+    return list(entry.get(canonical, []))
 
 
 def get_preferred_alias(
-    mappings: dict[str, dict[str, object]],
+    layouts: dict[str, dict[str, list[str]]],
     canonical: str,
     target: str,
 ) -> str | None:
-    aliases = get_target_aliases(mappings, canonical, target)
+    """Return the first (preferred) alias for *canonical* under *target*."""
+    aliases = get_target_aliases(layouts, canonical, target)
     return aliases[0] if aliases else None
 
+
+# ---------------------------------------------------------------------------
+# Reverse lookup
+# ---------------------------------------------------------------------------
+
+def find_canonical_system(
+    mappings: dict[str, dict[str, object]],
+    alias: str,
+    target: str = "nas",
+    *,
+    layouts: dict[str, dict[str, list[str]]] | None = None,
+) -> str | None:
+    """Return the canonical name whose *target* aliases contain *alias*.
+
+    For ``target='nas'`` the lookup is done directly against *mappings*.
+    For all other targets *layouts* must be provided; returns ``None`` when
+    the target is not present in *layouts*.
+    """
+    if target == "nas":
+        for canonical, row in mappings.items():
+            if _as_alias_list(row.get("nas")) and alias in _as_alias_list(row.get("nas")):
+                return canonical
+        return None
+
+    if layouts is None:
+        return None
+    entry = layouts.get(target, {})
+    for canonical, aliases in entry.items():
+        if alias in aliases:
+            return canonical
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Display / screen-fit helpers (unchanged — operate on mappings)
+# ---------------------------------------------------------------------------
 
 def get_system_display(mappings: dict[str, dict[str, object]], canonical: str) -> dict | None:
     """Return the display metadata dict for a system, or None if not annotated."""
@@ -144,37 +244,32 @@ def _parse_aspect(aspect: str) -> float | None:
         return None
 
 
-def find_canonical_system(
+# ---------------------------------------------------------------------------
+# Pretty-print
+# ---------------------------------------------------------------------------
+
+def print_system_mappings(
     mappings: dict[str, dict[str, object]],
-    alias: str,
-    target: str = "nas",
-) -> str | None:
-    if target not in TARGETS:
-        raise ValueError(f"Unknown mapping target: {target}")
-    for canonical, row in mappings.items():
-        if alias in _as_alias_list(row.get(target)):
-            return canonical
-    return None
-
-
-def print_system_mappings(mappings: dict[str, dict[str, object]], issues: list[MappingIssue]) -> None:
+    issues: list[MappingIssue],
+    *,
+    layouts: dict[str, dict[str, list[str]]] | None = None,
+) -> None:
     console = Console() if Console else None
-    rows = [
-        (
-            canonical,
-            _format_aliases(row.get("nas")),
-            _format_aliases(row.get("romm")),
-            _format_aliases(row.get("emudeck")),
-            _format_aliases(row.get("r36s")),
-            _format_aliases(row.get("batocera")),
-        )
-        for canonical, row in sorted(mappings.items())
-    ]
+    layout_targets = sorted(layouts.keys()) if layouts else []
+
+    rows = []
+    for canonical, row in sorted(mappings.items()):
+        cells = [canonical, _format_aliases(row.get("nas"))]
+        for t in layout_targets:
+            cells.append(_format_aliases(layouts[t].get(canonical)))  # type: ignore[index]
+        rows.append(tuple(cells))
+
+    headers = ["Canonical", "NAS"] + [t.upper() for t in layout_targets]
 
     if console and Table:
         table = Table(title="System Mapping Matrix")
-        for column in ("Canonical", "NAS", "ROMM", "EmuDeck", "R36S", "Batocera"):
-            table.add_column(column)
+        for h in headers:
+            table.add_column(h)
         for row in rows:
             table.add_row(*row)
         console.print(table)
@@ -183,11 +278,15 @@ def print_system_mappings(mappings: dict[str, dict[str, object]], issues: list[M
 
     print("System Mapping Matrix")
     print("=====================")
-    print("Canonical | NAS | ROMM | EmuDeck | R36S | Batocera")
+    print(" | ".join(headers))
     for row in rows:
         print(" | ".join(row))
     _print_issues_plain(issues)
 
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
 
 def _as_alias_list(value: object) -> list[str]:
     if value is None:
