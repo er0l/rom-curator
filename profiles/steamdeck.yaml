@@ -52,7 +52,8 @@ include_systems:
   - wii
   - wiiu
 
-exclude_systems: []
+exclude_systems:
+  - mame2003-plus
 
 preferred_region:
   - USA
