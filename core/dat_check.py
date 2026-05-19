@@ -176,19 +176,25 @@ def _print(console, text: str) -> None:
 def _print_summary(result: FolderDatCheckResult, *, detail: bool, console) -> None:
     folder_count = len(result.folder_stems)
 
+    # Best match = DAT that recognises the highest % of the folder's files
+    best: DatMatchResult | None = max(
+        result.results, key=lambda r: len(r.matched_all), default=None
+    )
+
     if console and Table:
         table = Table(show_lines=False, header_style="bold cyan")
         table.add_column("DAT", style="bold")
         table.add_column("Machines (total)", justify="right")
         table.add_column("Parents only", justify="right")
-        table.add_column("Your folder has", justify="right")
-        table.add_column("Of folder", justify="right", style="green")
-        table.add_column("Of DAT parents", justify="right")
+        table.add_column("Matched in folder", justify="right")
+        table.add_column("Folder match", justify="right", style="green")
+        table.add_column("Collection %", justify="right")
         table.add_column("Notes")
 
         for r in result.results:
             dat = r.dat
-            notes = dat.warning or ""
+            is_best = best and r is best and len(result.results) > 1
+            notes = dat.warning or ("[bold green]← best match[/bold green]" if is_best else "")
             table.add_row(
                 dat.label,
                 str(len(dat.all_machines)),
@@ -196,13 +202,21 @@ def _print_summary(result: FolderDatCheckResult, *, detail: bool, console) -> No
                 str(len(r.matched_all)),
                 _pct(len(r.matched_all), folder_count),
                 _pct(len(r.matched_parents), len(dat.parent_machines)),
-                f"[yellow]{notes}[/yellow]" if notes else "",
+                notes,
             )
 
         console.print(f"\nFolder: [bold]{result.folder}[/bold]  ({folder_count} files)\n")
         console.print(table)
+
+        if best:
+            match_pct = 100 * len(best.matched_all) // folder_count if folder_count else 0
+            console.print(
+                f"\n[bold]Best match:[/bold] [green]{best.dat.label}[/green] "
+                f"— {match_pct}% of folder files recognised "
+                f"({len(best.matched_all)} / {folder_count})"
+            )
         console.print(
-            f"\n[bold]Unmatched in any DAT:[/bold] {len(result.unmatched_in_any)} files "
+            f"[bold]Unmatched in any DAT:[/bold] {len(result.unmatched_in_any)} files "
             f"({_pct(len(result.unmatched_in_any), folder_count)} of folder)"
         )
     else:
@@ -210,20 +224,25 @@ def _print_summary(result: FolderDatCheckResult, *, detail: bool, console) -> No
         col_w = max((len(r.dat.label) for r in result.results), default=10) + 2
         header = (
             f"{'DAT':<{col_w}} {'Total':>8} {'Parents':>8} "
-            f"{'In folder':>10} {'% folder':>9} {'% DAT parents':>14}  Notes"
+            f"{'Matched':>8} {'Folder match':>13} {'Collection %':>13}  Notes"
         )
         print(header)
         print("-" * len(header))
         for r in result.results:
             dat = r.dat
-            note = f"  ← {dat.warning}" if dat.warning else ""
+            is_best = best and r is best and len(result.results) > 1
+            note = f"  ← {dat.warning}" if dat.warning else ("  ← best match" if is_best else "")
             print(
                 f"{dat.label:<{col_w}} {len(dat.all_machines):>8} {len(dat.parent_machines):>8} "
-                f"{len(r.matched_all):>10} {_pct(len(r.matched_all), folder_count):>9} "
-                f"{_pct(len(r.matched_parents), len(dat.parent_machines)):>14}{note}"
+                f"{len(r.matched_all):>8} {_pct(len(r.matched_all), folder_count):>13} "
+                f"{_pct(len(r.matched_parents), len(dat.parent_machines)):>13}{note}"
             )
+
+        if best:
+            match_pct = 100 * len(best.matched_all) // folder_count if folder_count else 0
+            print(f"\nBest match: {best.dat.label} — {match_pct}% of folder files recognised ({len(best.matched_all)} / {folder_count})")
         print(
-            f"\nUnmatched in any DAT: {len(result.unmatched_in_any)} files "
+            f"Unmatched in any DAT: {len(result.unmatched_in_any)} files "
             f"({_pct(len(result.unmatched_in_any), folder_count)} of folder)"
         )
 

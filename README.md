@@ -415,9 +415,15 @@ Output columns:
 |--------|---------|
 | Machines (total) | All entries in the DAT including clones |
 | Parents only | Unique games (no regional variants or clones) |
-| Your folder has | Files in the folder recognised by this DAT |
-| % of folder | Fraction of your files known to this DAT — **highest value = likely source version** |
-| % of DAT parents | How complete your collection is relative to this DAT |
+| Matched in folder | Files in the folder recognised by this DAT |
+| Folder match | **What fraction of your files this DAT recognises — highest value = your romset's source version** |
+| Collection % | How complete your folder is relative to this DAT's parent set |
+
+When multiple DATs are compared, the best-matching one is flagged with `← best match` and a summary line is printed:
+
+```
+Best match: mame2016 — 98% of folder files recognised (368 / 373)
+```
 
 DATs with identical machine lists are automatically flagged (e.g. a mislabelled zip).
 
