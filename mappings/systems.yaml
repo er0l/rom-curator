@@ -16,6 +16,12 @@ alg:
 amiga:
   nas: amiga
 
+amiga600:
+  nas: amiga600
+
+amiga1200:
+  nas: amiga1200
+
 amigacd32:
   nas: amigacd32
 
@@ -27,6 +33,14 @@ amstradgx4000:
 
 android:
   nas: android
+
+apple2:
+  nas: apple2
+  display: {aspect: "4:3", orientation: landscape}
+
+apple2gs:
+  nas: apple2gs
+  display: {aspect: "4:3", orientation: landscape}
 
 arcade:
   nas: arcade
@@ -59,6 +73,9 @@ atarixegs:
 atomiswave:
   nas: atomiswave
   display: {aspect: "4:3", orientation: landscape}
+
+bbcmicro:
+  nas: bbcmicro
 
 bios:
   nas: bios
@@ -164,12 +181,20 @@ j2me:
 jaguar:
   nas: jaguar
 
+atarijaguarcd:
+  nas: atarijaguarcd
+  display: {aspect: "4:3", orientation: landscape}
+
 lowresnx:
   nas: lowresnx
 
 lynx:
   nas: lynx
   display: {aspect: "3:2", orientation: landscape}
+
+macintosh:
+  nas: macintosh
+  display: {aspect: "4:3", orientation: landscape}
 
 mastersystem:
   nas: mastersystem
@@ -188,11 +213,22 @@ megadrive:
 megaduck:
   nas: megaduck
 
+model2:
+  nas: model2
+  display: {orientation: mixed}
+
+model3:
+  nas: model3
+  display: {orientation: mixed}
+
 msx:
   nas: msx
 
 msx2:
   nas: msx2
+
+msxturbor:
+  nas: msxturbor
 
 n64:
   nas: n64
@@ -203,6 +239,10 @@ n64dd:
 
 naomi:
   nas: naomi
+  display: {orientation: mixed}
+
+naomi2:
+  nas: naomi2
   display: {orientation: mixed}
 
 nds:
@@ -216,6 +256,9 @@ neogeo:
 neogeocd:
   nas: neogeocd
   display: {aspect: "4:3", orientation: landscape}
+
+ngage:
+  nas: ngage
 
 nes:
   nas: nes
@@ -241,6 +284,9 @@ openbor:
 pc:
   nas: pc
 
+pc88:
+  nas: pc88
+
 pc98:
   nas: pc98
 
@@ -260,6 +306,10 @@ pgm2:
 
 pico8:
   nas: pico-8
+
+plus4:
+  nas: plus4
+  display: {aspect: "4:3", orientation: landscape}
 
 pokemini:
   nas: pokemini
@@ -318,6 +368,10 @@ snes:
 
 solarus:
   nas: solarus
+
+stv:
+  nas: stv
+  display: {orientation: mixed}
 
 sufami:
   nas: sufami
@@ -391,6 +445,10 @@ x68000:
 
 xbox:
   nas: xbox
+
+xbox360:
+  nas: xbox360
+  display: {aspect: "16:9", orientation: landscape}
 
 zx81:
   nas: zx81
