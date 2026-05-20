@@ -7,6 +7,14 @@ from pathlib import Path
 import re
 
 
+# Compound format pseudo-extensions that precede the real extension.
+# e.g. "Game.xiso.iso" → strip ".xiso" before parsing so it doesn't
+# pollute the title.
+_COMPOUND_EXTS = re.compile(
+    r"\.(xiso|nkit|gcm|rvz|wbfs)$",
+    re.IGNORECASE,
+)
+
 REGION_ALIASES = {
     "USA": "USA",
     "U": "USA",
@@ -82,7 +90,7 @@ class ParsedRomName:
 
 def parse_filename(filename: str) -> ParsedRomName:
     """Parse common No-Intro/Redump-style ROM filename metadata."""
-    stem = Path(filename).stem
+    stem = _COMPOUND_EXTS.sub("", Path(filename).stem)
     tags = [first or second for first, second in PAREN_TAG_RE.findall(stem)]
 
     title = PAREN_TAG_RE.sub("", stem)
