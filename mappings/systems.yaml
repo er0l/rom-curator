@@ -16,6 +16,9 @@ alg:
 amiga:
   nas: amiga
 
+amiga500:
+  nas: amiga500
+
 amiga600:
   nas: amiga600
 

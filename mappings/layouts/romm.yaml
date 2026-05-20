@@ -6,6 +6,7 @@
 3ds: [3ds]
 alg: [alg]
 amiga: [amiga]
+amiga500: [amiga500]
 amiga600: [amiga600]
 amiga1200: [amiga1200]
 amigacd32: [amigacd32, amiga-cd32]
