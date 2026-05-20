@@ -12,12 +12,15 @@ gen-gamelist:
 
 Existing files are never overwritten. A small delay between requests avoids
 flooding the local ROMM HTTP server.
+
+Default behaviour is a dry run — pass --execute to actually write files.
 """
 
 from __future__ import annotations
 
 import os
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from core.database import InventoryDatabase
@@ -39,9 +42,33 @@ except ImportError as exc:
 try:
     from rich.console import Console
     from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+    from rich.table import Table
 except ImportError:
     Console = None
     Progress = None
+    Table = None
+
+
+# ---------------------------------------------------------------------------
+# Stats
+# ---------------------------------------------------------------------------
+
+@dataclass
+class FetchMediaStats:
+    system: str
+    folder: str
+    # Covers
+    cover_available: int = 0    # ROMs with a cover URL in DB
+    cover_present: int = 0      # already on disk
+    cover_missing: int = 0      # absent — would be / were downloaded
+    cover_fetched: int = 0      # actually downloaded (execute mode)
+    cover_errors: int = 0
+    # Screenshots
+    shot_available: int = 0
+    shot_present: int = 0
+    shot_missing: int = 0
+    shot_fetched: int = 0
+    shot_errors: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -56,27 +83,15 @@ def fetch_media(
     *,
     nas_folder: str | None = None,
     delay: float = 0.05,
-    dry_run: bool = False,
-    console=None,
-) -> dict[str, int]:
-    """Download missing cover and screenshot images for *system*.
-
-    Returns stats: total, cover_fetched, cover_skipped, screenshot_fetched,
-    screenshot_skipped, errors.
-    """
-    stats = {
-        "total": 0,
-        "cover_fetched": 0,
-        "cover_skipped": 0,
-        "screenshot_fetched": 0,
-        "screenshot_skipped": 0,
-        "errors": 0,
-    }
-
+    execute: bool = False,
+) -> FetchMediaStats:
+    """Analyse (and optionally download) missing cover/screenshot images for *system*."""
     folder_name = nas_folder or system
     system_dir = roms_root / folder_name
     if not system_dir.is_dir():
         raise FileNotFoundError(f"System folder not found: {system_dir}")
+
+    stats = FetchMediaStats(system=system, folder=folder_name)
 
     with InventoryDatabase(database_path) as db:
         db.initialize()
@@ -94,94 +109,80 @@ def fetch_media(
     if not rows:
         return stats
 
-    headers = {"Accept": "image/*, video/*"}
     romm_base = romm_url.rstrip("/")
+    pending_covers: list[tuple[str, Path]] = []      # (url, dest)
+    pending_shots:  list[tuple[str, Path]] = []
 
-    with httpx.Client(headers=headers, follow_redirects=True, timeout=30) as client:
-        tasks = list(rows)
-        stats["total"] = len(tasks)
+    for row in rows:
+        stem = str(row["fs_stem"] or "")
+        if not stem:
+            continue
 
-        def _do_fetch(progress=None, task_id=None):
-            for i, row in enumerate(tasks):
-                stem = str(row["fs_stem"] or "")
-                if not stem:
-                    continue
+        # Cover
+        cover_url = str(row["url_cover"] or "")
+        if cover_url:
+            stats.cover_available += 1
+            dest = system_dir / "boxart" / f"{stem}.jpg"
+            if dest.exists():
+                stats.cover_present += 1
+            else:
+                stats.cover_missing += 1
+                pending_covers.append((_full_url(romm_base, cover_url), dest))
 
-                _fetch_asset(
-                    client, romm_base,
-                    url=row["url_cover"],
-                    dest=system_dir / "boxart" / f"{stem}.jpg",
-                    stats_key_fetched="cover_fetched",
-                    stats_key_skipped="cover_skipped",
-                    stats=stats,
-                    dry_run=dry_run,
-                )
-                if delay > 0 and not dry_run:
-                    time.sleep(delay)
+        # Screenshot (first only)
+        shots_raw = str(row["url_screenshots"] or "")
+        shot_url = shots_raw.split(";")[0].strip() if shots_raw else ""
+        if shot_url:
+            stats.shot_available += 1
+            dest = system_dir / "screenshots" / f"{stem}.jpg"
+            if dest.exists():
+                stats.shot_present += 1
+            else:
+                stats.shot_missing += 1
+                pending_shots.append((_full_url(romm_base, shot_url), dest))
 
-                screenshots_raw = str(row["url_screenshots"] or "")
-                first_screenshot = screenshots_raw.split(";")[0].strip() if screenshots_raw else None
-                _fetch_asset(
-                    client, romm_base,
-                    url=first_screenshot,
-                    dest=system_dir / "screenshots" / f"{stem}.jpg",
-                    stats_key_fetched="screenshot_fetched",
-                    stats_key_skipped="screenshot_skipped",
-                    stats=stats,
-                    dry_run=dry_run,
-                )
-                if delay > 0 and not dry_run:
-                    time.sleep(delay)
+    if not execute:
+        return stats
 
-                if progress is not None and task_id is not None:
-                    progress.advance(task_id)
-
-        if Progress and console:
-            progress = Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                MofNCompleteColumn(),
-                TimeElapsedColumn(),
-                console=console,
-            )
-            with progress:
-                task_id = progress.add_task(f"Fetching media: {system}", total=len(tasks))
-                _do_fetch(progress, task_id)
-        else:
-            _do_fetch()
+    # Execute: download pending files
+    with httpx.Client(follow_redirects=True, timeout=30) as client:
+        for url, dest in pending_covers:
+            _download(client, url, dest, stats, "cover")
+            if delay > 0:
+                time.sleep(delay)
+        for url, dest in pending_shots:
+            _download(client, url, dest, stats, "shot")
+            if delay > 0:
+                time.sleep(delay)
 
     return stats
 
 
-def _fetch_asset(
-    client: httpx.Client,
-    romm_base: str,
-    url: str | None,
-    dest: Path,
-    stats_key_fetched: str,
-    stats_key_skipped: str,
-    stats: dict[str, int],
-    dry_run: bool,
-) -> None:
-    if not url:
-        return
-    if dest.exists():
-        stats[stats_key_skipped] += 1
-        return
-    if dry_run:
-        stats[stats_key_fetched] += 1
-        return
+def _full_url(base: str, url: str) -> str:
+    return url if url.startswith("http") else f"{base}{url}"
 
-    full_url = url if url.startswith("http") else f"{romm_base}{url}"
+
+def _download(
+    client: httpx.Client,
+    url: str,
+    dest: Path,
+    stats: FetchMediaStats,
+    kind: str,
+) -> None:
     try:
-        r = client.get(full_url)
+        r = client.get(url)
         r.raise_for_status()
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(r.content)
-        stats[stats_key_fetched] += 1
+        if kind == "cover":
+            stats.cover_fetched += 1
+        else:
+            stats.shot_fetched += 1
     except Exception:
-        stats["errors"] += 1
+        if kind == "cover":
+            stats.cover_errors += 1
+        else:
+            stats.shot_errors += 1
 
 
 # ---------------------------------------------------------------------------
@@ -193,7 +194,7 @@ def run_fetch_media(
     systems: list[str],
     mappings: dict[str, dict[str, object]],
     *,
-    dry_run: bool = False,
+    execute: bool = False,
 ) -> None:
     paths = config.get("paths", {})
     if not isinstance(paths, dict):
@@ -218,7 +219,7 @@ def run_fetch_media(
 
     console = Console() if Console else None
 
-    rows_out = []
+    all_stats: list[FetchMediaStats] = []
     for system in systems:
         nas_folder = None
         sys_meta = mappings.get(system, {})
@@ -228,40 +229,90 @@ def run_fetch_media(
         folder_name = nas_folder or system
         system_dir  = roms_root / folder_name
         if not system_dir.is_dir():
-            rows_out.append((system, folder_name, "—", "—", "—", "—", "folder not found"))
+            if console:
+                console.print(f"[yellow]Warning:[/yellow] folder not found: {system_dir}")
+            else:
+                print(f"Warning: folder not found: {system_dir}")
             continue
 
         try:
             stats = fetch_media(
                 system, roms_root, database_path, romm_url,
-                nas_folder=folder_name, delay=delay, dry_run=dry_run, console=console,
+                nas_folder=folder_name, delay=delay, execute=execute,
             )
-            prefix = "DRY RUN" if dry_run else "done"
-            rows_out.append((
-                system,
-                folder_name,
-                str(stats["total"]),
-                str(stats["cover_fetched"]),
-                str(stats["cover_skipped"]),
-                str(stats["screenshot_fetched"]),
-                f"{prefix} ({stats['errors']} errors)" if stats["errors"] else prefix,
-            ))
+            all_stats.append(stats)
         except Exception as exc:
-            rows_out.append((system, folder_name, "—", "—", "—", "—", f"ERROR: {exc}"))
+            if console:
+                console.print(f"[red]ERROR[/red] {system}: {exc}")
+            else:
+                print(f"ERROR {system}: {exc}")
 
-    columns = ("System", "Folder", "ROMs", "Cover↓", "Cover✓", "Shot↓", "Status")
-    if console:
-        from rich.table import Table
-        table = Table(title="fetch-media")
+    _print_report(all_stats, execute=execute, console=console)
+
+
+def _print_report(
+    all_stats: list[FetchMediaStats],
+    *,
+    execute: bool,
+    console,
+) -> None:
+    if not all_stats:
+        return
+
+    mode = "EXECUTE" if execute else "DRY RUN"
+    title = f"fetch-media — {mode}"
+
+    # Columns: System | Folder | Cover: have/total | Shot: have/total | To fetch | Status
+    columns = ("System", "Folder", "Covers on disk", "Covers to fetch", "Shots on disk", "Shots to fetch", "Errors")
+
+    rows_out = []
+    for s in all_stats:
+        errors = s.cover_errors + s.shot_errors
+        if execute:
+            cover_col = f"{s.cover_present + s.cover_fetched}/{s.cover_available}"
+            shot_col  = f"{s.shot_present + s.shot_fetched}/{s.shot_available}"
+            cover_fetch_col = str(s.cover_fetched)
+            shot_fetch_col  = str(s.shot_fetched)
+        else:
+            cover_col       = f"{s.cover_present}/{s.cover_available}"
+            shot_col        = f"{s.shot_present}/{s.shot_available}"
+            cover_fetch_col = str(s.cover_missing)
+            shot_fetch_col  = str(s.shot_missing)
+        rows_out.append((
+            s.system, s.folder,
+            cover_col, cover_fetch_col,
+            shot_col,  shot_fetch_col,
+            str(errors) if errors else "—",
+        ))
+
+    if console and Table:
+        table = Table(title=title)
         for col in columns:
             table.add_column(col)
         for row in rows_out:
             table.add_row(*row)
         console.print(table)
+
+        total_fetch = sum(s.cover_missing + s.shot_missing for s in all_stats)
+        total_errors = sum(s.cover_errors + s.shot_errors for s in all_stats)
+        if execute:
+            fetched = sum(s.cover_fetched + s.shot_fetched for s in all_stats)
+            console.print(f"\n[bold]EXECUTE complete[/bold] — {fetched} file(s) downloaded, {total_errors} error(s).")
+        else:
+            console.print(
+                f"\n[bold]DRY RUN[/bold] — {total_fetch} file(s) would be downloaded. "
+                "Pass [bold]--execute[/bold] to fetch them."
+            )
     else:
         print(" | ".join(columns))
         for row in rows_out:
             print(" | ".join(row))
+        total_fetch = sum(s.cover_missing + s.shot_missing for s in all_stats)
+        if execute:
+            fetched = sum(s.cover_fetched + s.shot_fetched for s in all_stats)
+            print(f"\nEXECUTE complete — {fetched} file(s) downloaded.")
+        else:
+            print(f"\nDRY RUN — {total_fetch} file(s) would be downloaded. Pass --execute to fetch them.")
 
 
 def _load_env(config: dict[str, object]) -> None:
