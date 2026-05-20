@@ -181,7 +181,10 @@ def create_export_plan(
             if is_folder_based:
                 # Folder-based game: hardlink every file in the subfolder as one unit.
                 # Region/beta/hack/year filters don't apply at the individual-file level
-                # for multi-file game installs.
+                # for multi-file game installs, but compat filtering applies per game.
+                if not passes_compat(compat, rows[0], compat_min_playability, include_unlisted):
+                    summary.skipped_compat += 1
+                    continue
                 if isinstance(max_games, int) and selected_for_system >= max_games:
                     summary.capped += 1
                     continue
