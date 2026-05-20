@@ -119,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
             if not systems_arg:
                 roms_root = Path(str(config.get("paths", {}).get("roms", ""))).expanduser()
                 systems_arg = sorted(d.name for d in roms_root.iterdir() if d.is_dir()) if roms_root.exists() else []
-            run_gen_gamelist(config, systems_arg, mappings, dry_run=args.dry_run)
+            run_gen_gamelist(config, systems_arg, mappings, dry_run=not args.execute)
         elif args.command == "gen-m3u":
             from tools.gen_m3u import run_gen_m3u
             mappings = _load_configured_mappings(config)
@@ -249,7 +249,7 @@ def build_parser() -> argparse.ArgumentParser:
     dedup_parser.add_argument("--execute", action="store_true", help="Actually move files  (default: dry run)")
     gen_gamelist_parser = subparsers.add_parser("gen-gamelist", help="Generate or update gamelist.xml for one or more systems")
     gen_gamelist_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only process these systems, comma-separated  (default: all)")
-    gen_gamelist_parser.add_argument("--dry-run", action="store_true", help="Show what would be written without creating files")
+    gen_gamelist_parser.add_argument("--execute", action="store_true", help="Actually write gamelist.xml files  (default: dry run)")
     fetch_media_parser = subparsers.add_parser("fetch-media", help="Download missing cover and screenshot images from ROMM to NAS system folders")
     fetch_media_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only process these systems, comma-separated  (default: all)")
     fetch_media_parser.add_argument("--execute", action="store_true", help="Actually download files  (default: dry run)")

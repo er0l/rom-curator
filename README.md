@@ -406,9 +406,10 @@ Generate or update `gamelist.xml` for EmulationStation-compatible frontends
 (Batocera, ES-DE, EmuDeck):
 
 ```bash
-python3 romcurator.py gen-gamelist                    # all systems
-python3 romcurator.py gen-gamelist snes megadrive n64 # specific systems
-python3 romcurator.py gen-gamelist snes --dry-run     # preview without writing
+python3 romcurator.py gen-gamelist                              # dry-run all systems
+python3 romcurator.py gen-gamelist --systems snes,megadrive,n64 # dry-run specific systems
+python3 romcurator.py gen-gamelist --execute                    # write all systems
+python3 romcurator.py gen-gamelist --systems snes,n64 --execute # write specific systems
 ```
 
 For each system, the tool:
@@ -669,8 +670,9 @@ python3 romcurator.py fetch-media snes n64 megadrive
 python3 romcurator.py fetch-media --execute
 python3 romcurator.py fetch-media snes n64 --execute
 python3 romcurator.py gen-gamelist
-python3 romcurator.py gen-gamelist snes megadrive n64
-python3 romcurator.py gen-gamelist snes --dry-run
+python3 romcurator.py gen-gamelist --systems snes,megadrive,n64
+python3 romcurator.py gen-gamelist --systems snes,n64 --execute
+python3 romcurator.py gen-gamelist --execute
 python3 romcurator.py compat-import Dreamcast.xlsx Saturn.xlsx
 python3 romcurator.py compat-import *.xlsx --chip rk3326
 python3 romcurator.py zip-roms
