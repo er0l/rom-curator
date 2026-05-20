@@ -33,12 +33,38 @@ PLAYABILITY_RANK: dict[str, int] = {
 
 PLAYABILITY_LEVELS = list(PLAYABILITY_RANK.keys())
 
+# Roman numerals that appear as standalone words in game titles.
+_ROMAN: dict[str, str] = {
+    "ii": "2", "iii": "3", "iv": "4", "vi": "6",
+    "vii": "7", "viii": "8", "ix": "9", "xi": "11", "xii": "12",
+}
+
 
 def normalise_key(s: str) -> str:
-    """Lowercase, strip non-alphanumeric, collapse whitespace."""
+    """Normalise a game title or compat key for reliable lookup.
+
+    Steps applied (in order):
+      1. Lowercase
+      2. Strip version-number suffixes  (v1.001, v1001, v0002 …)
+      3. Strip leading numeric library codes  (e.g. Saturn "036 Shinobi Legions")
+      4. Strip non-alphanumeric characters (keep spaces)
+      5. Strip common platform suffixes that appear in ROM names but not
+         in compat lists  (trailing "ds", "psp", "portable")
+      6. Convert standalone roman numerals  (ii→2, iii→3 …)
+      7. Collapse whitespace
+    """
     s = s.lower()
+    # Version tags: v1.001 / v1001 / v0002 etc.
+    s = re.sub(r"\bv\d+\.?\d*\b", "", s)
+    # Leading numeric library codes common in Saturn/Dreamcast sets: "036 "
+    s = re.sub(r"^\d{2,3} ", "", s)
+    # Strip non-alphanumeric (keep spaces)
     s = re.sub(r"[^a-z0-9 ]", "", s)
-    return re.sub(r"\s+", " ", s).strip()
+    # Platform suffixes added in ROM filenames but absent from compat list titles
+    s = re.sub(r"\b(ds|psp|portable)\s*$", "", s)
+    # Roman numeral words → Arabic
+    words = [_ROMAN.get(w, w) for w in s.split()]
+    return re.sub(r"\s+", " ", " ".join(words)).strip()
 
 
 @dataclass
@@ -95,11 +121,22 @@ def load_compat_lists(mappings_dir: Path, chip: str) -> dict[str, CompatList]:
         if not isinstance(data, dict):
             continue
         system = str(data.get("system", yaml_path.stem))
+        match_by = str(data.get("match_by", "title"))
+        raw_games = {str(k): str(v) for k, v in (data.get("games") or {}).items()}
+        # Re-normalise title-based keys through the current normalise_key so that
+        # YAML files generated with an older version of the normaliser still benefit
+        # from any subsequent improvements (e.g. version-tag stripping).
+        if match_by == "title":
+            games: dict[str, str] = {}
+            for k, v in raw_games.items():
+                games[normalise_key(k)] = v
+        else:
+            games = raw_games
         cl = CompatList(
             system=system,
             chip=str(data.get("chip", chip)),
-            match_by=str(data.get("match_by", "title")),
-            games={str(k): str(v) for k, v in (data.get("games") or {}).items()},
+            match_by=match_by,
+            games=games,
         )
         result[system] = cl
     return result
