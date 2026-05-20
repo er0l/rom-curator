@@ -112,6 +112,15 @@ def main(argv: list[str] | None = None) -> int:
             from tools.clean_media import run_clean_media
             media_folders = _parse_systems(args.media_folders)  # reuse comma-split helper
             run_clean_media(config, systems=_parse_systems(args.systems), media_folders=media_folders, execute=args.execute)
+        elif args.command == "gen-gamelist":
+            from tools.gen_gamelist import run_gen_gamelist
+            mappings = _load_configured_mappings(config)
+            systems_arg = list(args.systems) if args.systems else []
+            if not systems_arg:
+                # Default: all systems present in the roms root
+                roms_root = Path(str(config.get("paths", {}).get("roms", ""))).expanduser()
+                systems_arg = sorted(d.name for d in roms_root.iterdir() if d.is_dir()) if roms_root.exists() else []
+            run_gen_gamelist(config, systems_arg, mappings, dry_run=args.dry_run)
         elif args.command == "gen-m3u":
             from tools.gen_m3u import run_gen_m3u
             mappings = _load_configured_mappings(config)
@@ -231,6 +240,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Region priority, highest first  (default: USA Europe Japan)",
     )
     dedup_parser.add_argument("--execute", action="store_true", help="Actually move files  (default: dry run)")
+    gen_gamelist_parser = subparsers.add_parser("gen-gamelist", help="Generate or update gamelist.xml for one or more systems")
+    gen_gamelist_parser.add_argument("systems", nargs="*", metavar="SYSTEM", help="Systems to process (default: all systems in ROM root)")
+    gen_gamelist_parser.add_argument("--dry-run", action="store_true", help="Show what would be written without creating files")
     clean_media_parser = subparsers.add_parser("clean-media", help="Remove orphaned media files (images, videos, boxart, etc.) from the ROM archive")
     clean_media_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only check these systems, comma-separated  (default: all)")
     clean_media_parser.add_argument("--media-folders", metavar="FOLDER,...", help="Media subfolder names to check, comma-separated  (default: images,videos,snap,boxart,wheel,...)")
