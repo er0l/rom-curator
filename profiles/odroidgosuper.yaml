@@ -81,6 +81,10 @@ selection:
   arcade_exclude_controls: [wheel, spinner, trackball, lightgun, mouse, pedal]
   # mame_versions filter not needed — mame2003-plus folder already contains
   # exactly the right romset for this hardware.
+  # RK3326 compatibility filter — only export ROMs that are known to run acceptably.
+  compat_chip: rk3326
+  compat_min_playability: Ok
+  compat_include_unlisted: true   # games without a compat entry are not penalised
   # ROMM metadata filters — only applied to ROMs that have a romm-sync record.
   # Games with no ROMM data are never penalised by these filters.
   # year_from: 1980    # only include games released from this year

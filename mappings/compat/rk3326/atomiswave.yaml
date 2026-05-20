@@ -1,0 +1,34 @@
+chip: rk3326
+system: atomiswave
+match_by: stem
+games:
+  anmlbskt: Good
+  basschal: Mediocre
+  blokpong: Medium
+  claychal: None
+  demofist: Ok
+  dirtypig: Good
+  dolphin: Medium
+  force five: None
+  fotns: Good
+  ftspeed: Ok
+  ggisuka: Good
+  ggx15: Good
+  kenju: None
+  kofnw: None
+  kofxi: Mediocre
+  kov7sprt: Ok
+  maxspeed: Ok
+  mslug6: Medium
+  ngbc: Ok
+  rangrmsn: None
+  rumblef: Good
+  rumblef2: Good
+  salmankt: None
+  samsptk: Mediocre
+  sprtshot: None
+  sushibar: Medium
+  vfurlong: None
+  waidrive: Good
+  xtrmhunt: None
+  xtrmhunt2: None

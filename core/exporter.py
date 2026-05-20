@@ -7,6 +7,7 @@ from pathlib import Path
 import os
 import shutil
 
+from .compat import CompatList, load_compat_lists, passes_compat
 from .database import InventoryDatabase
 from .mappings import get_preferred_alias
 from .profiles import selected_systems
@@ -45,6 +46,7 @@ class ExportSystemSummary:
     arcade_clones_removed: int = 0
     skipped_non_game: int = 0
     skipped_controls: int = 0
+    skipped_compat: int = 0
     skipped_year: int = 0
     capped: int = 0
     no_target_alias: int = 0
@@ -84,6 +86,7 @@ def create_export_plan(
     systems_filter: list[str] | None = None,
     mame_versions: list[str] | None = None,
     layouts: dict[str, dict[str, list[str]]] | None = None,
+    compat_lists: dict[str, CompatList] | None = None,
 ) -> ExportPlan:
     target = str(profile.get("target"))
     export_root = Path(exports_root).expanduser() / profile_name
@@ -110,6 +113,13 @@ def create_export_plan(
     _mame_versions: list[str] | None = mame_versions or _as_string_list(
         selection.get("mame_versions")
     ) or None
+    # Compat list settings — loaded per profile chip, applied per system.
+    compat_chip: str | None = str(selection.get("compat_chip")) if selection.get("compat_chip") else None
+    compat_min_playability: str = str(selection.get("compat_min_playability") or "Ok")
+    compat_include_unlisted: bool = bool(selection.get("compat_include_unlisted", True))
+    # compat_lists can be passed in (pre-loaded by caller) or will be empty.
+    _compat_lists: dict[str, CompatList] = compat_lists or {}
+
     # Folder-based systems store each game as a subfolder (e.g. scummvm, dos, windows).
     # The export unit is the whole subfolder; all files within it are hardlinked together.
     folder_based_systems: frozenset[str] = frozenset(
@@ -159,6 +169,7 @@ def create_export_plan(
         is_folder_based = system in folder_based_systems
         selected_for_system = 0
         title_groups = grouped.get(system, {})
+        compat = _compat_lists.get(system) if compat_chip else None
 
         for rows in title_groups.values():
             if is_folder_based:
@@ -204,6 +215,9 @@ def create_export_plan(
                 # unrecognised), the check is skipped so no games are falsely excluded.
                 if is_arcade_system and arcade_exclude_controls and _needs_excluded_control(row, arcade_exclude_controls):
                     summary.skipped_controls += 1
+                    continue
+                if not passes_compat(compat, row, compat_min_playability, compat_include_unlisted):
+                    summary.skipped_compat += 1
                     continue
                 skip_reason = _skip_reason(row, preferred_regions, selection)
                 if skip_reason:
@@ -333,6 +347,7 @@ def print_export_plan(plan: ExportPlan) -> None:
             str(summary.skipped_unidentified),
             str(summary.skipped_non_game),
             str(summary.skipped_controls),
+            str(summary.skipped_compat),
             str(summary.skipped_year),
             str(summary.capped),
             str(summary.duplicate_regions_removed),
@@ -347,7 +362,7 @@ def print_export_plan(plan: ExportPlan) -> None:
         console.print(f"Target: [bold]{plan.target}[/bold]")
         console.print(f"Export root: [bold]{plan.export_root}[/bold]")
         table = Table(title="Export Plan")
-        for column in ("System", "Seen", "Selected", "Size", "Region", "Beta", "Proto", "Hack", "Rating", "Unidentified", "Non-game", "Controls", "Year", "Cap", "Dupes", "Clones"):
+        for column in ("System", "Seen", "Selected", "Size", "Region", "Beta", "Proto", "Hack", "Rating", "Unidentified", "Non-game", "Controls", "Compat", "Year", "Cap", "Dupes", "Clones"):
             table.add_column(column)
         for row in rows:
             table.add_row(*row)
@@ -359,7 +374,7 @@ def print_export_plan(plan: ExportPlan) -> None:
     print(f"Profile: {plan.profile_name}")
     print(f"Target: {plan.target}")
     print(f"Export root: {plan.export_root}")
-    print("System | Seen | Selected | Size | Region | Beta | Proto | Hack | Rating | Unidentified | Non-game | Controls | Year | Cap | Dupes | Clones")
+    print("System | Seen | Selected | Size | Region | Beta | Proto | Hack | Rating | Unidentified | Non-game | Controls | Compat | Year | Cap | Dupes | Clones")
     for row in rows:
         print(" | ".join(row))
     print(f"Planned hardlinks: {len(plan.items)}")

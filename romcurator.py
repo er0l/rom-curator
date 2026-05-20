@@ -8,6 +8,8 @@ from copy import deepcopy
 from pathlib import Path
 import sys
 
+from core.compat import load_compat_lists
+from core.compat_import import run_compat_import
 from core.exporter import create_export_plan, execute_export_plan, print_export_plan, print_export_result
 from core.inventory import run_inventory
 from core.mappings import (
@@ -131,6 +133,20 @@ def main(argv: list[str] | None = None) -> int:
             from core.dat_check import run_dat_check
             dat_paths = [Path(d) for d in args.dats]
             run_dat_check(Path(args.folder), dat_paths, detail=args.detail, parents_only=args.parents_only)
+        elif args.command == "compat-import":
+            mappings_dir = _load_configured_mappings_dir(config)
+            system_overrides = {}
+            if args.system:
+                if len(args.files) != 1:
+                    print("Error: --system can only be used when importing a single file", file=sys.stderr)
+                    return 1
+                system_overrides[Path(args.files[0]).stem] = args.system
+            run_compat_import(
+                [Path(f) for f in args.files],
+                chip=args.chip,
+                mappings_dir=mappings_dir,
+                system_overrides=system_overrides,
+            )
         else:
             parser.error(f"Unknown command: {args.command}")
     except Exception as exc:
@@ -235,6 +251,12 @@ def build_parser() -> argparse.ArgumentParser:
     dat_check_parser.add_argument("dats", nargs="+", metavar="DAT", help="One or more MAME XML DAT files (.xml, .dat, or .zip containing one)")
     dat_check_parser.add_argument("--detail", action="store_true", help="Print files in folder not found in any DAT")
     dat_check_parser.add_argument("--parents-only", dest="parents_only", action="store_true", help="Only match parent ROMs (ignore clones)")
+
+    compat_import_parser = subparsers.add_parser("compat-import", help="Import R36S/RK3326 compatibility xlsx lists into compat YAML files")
+    compat_import_parser.add_argument("files", nargs="+", metavar="XLSX", help="One or more xlsx compatibility list files to import")
+    compat_import_parser.add_argument("--chip", default="rk3326", help="Chip identifier used to organise compat files (default: rk3326)")
+    compat_import_parser.add_argument("--system", metavar="SYSTEM", help="Override system name (only valid when importing a single file)")
+
     return parser
 
 
@@ -396,6 +418,16 @@ def _create_configured_export_plan(config: dict[str, object], name: str, *, syst
     if year_from is not None or year_to is not None:
         profile = {**profile, "selection": {**(profile.get("selection") or {}), **({} if year_from is None else {"year_from": year_from}), **({} if year_to is None else {"year_to": year_to})}}
 
+    # Load compat lists for the chip named in the profile's selection.compat_chip.
+    compat_chip = None
+    selection = profile.get("selection")
+    if isinstance(selection, dict):
+        compat_chip = selection.get("compat_chip")
+    compat_lists = {}
+    if compat_chip:
+        mappings_dir = _load_configured_mappings_dir(config)
+        compat_lists = load_compat_lists(mappings_dir, str(compat_chip))
+
     return create_export_plan(
         _resolve_config_path(config, str(database_path)),
         name,
@@ -406,6 +438,7 @@ def _create_configured_export_plan(config: dict[str, object], name: str, *, syst
         systems_filter=systems,
         mame_versions=mame_versions,
         layouts=layouts,
+        compat_lists=compat_lists,
     )
 
 
@@ -415,6 +448,14 @@ def _load_configured_mappings(config: dict[str, object]) -> dict[str, dict[str, 
         raise ValueError("Config key 'paths' must be a mapping")
     mappings_path = paths.get("mappings") or Path(__file__).with_name("mappings") / "systems.yaml"
     return load_system_mappings(_resolve_config_path(config, str(mappings_path)))
+
+
+def _load_configured_mappings_dir(config: dict[str, object]) -> Path:
+    """Return the directory containing systems.yaml (and the compat/ sub-dir)."""
+    paths = config.get("paths", {})
+    mappings_path = paths.get("mappings") if isinstance(paths, dict) else None
+    mappings_path = mappings_path or Path(__file__).with_name("mappings") / "systems.yaml"
+    return _resolve_config_path(config, str(mappings_path)).parent
 
 
 def _load_configured_layouts(config: dict[str, object]) -> dict[str, dict[str, list[str]]]:
