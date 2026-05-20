@@ -115,9 +115,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "gen-gamelist":
             from tools.gen_gamelist import run_gen_gamelist
             mappings = _load_configured_mappings(config)
-            systems_arg = list(args.systems) if args.systems else []
+            systems_arg = _parse_systems(args.systems)
             if not systems_arg:
-                # Default: all systems present in the roms root
                 roms_root = Path(str(config.get("paths", {}).get("roms", ""))).expanduser()
                 systems_arg = sorted(d.name for d in roms_root.iterdir() if d.is_dir()) if roms_root.exists() else []
             run_gen_gamelist(config, systems_arg, mappings, dry_run=args.dry_run)
@@ -145,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "fetch-media":
             from tools.fetch_media import run_fetch_media
             mappings = _load_configured_mappings(config)
-            systems_arg = list(args.systems) if args.systems else []
+            systems_arg = _parse_systems(args.systems)
             if not systems_arg:
                 roms_root = Path(str(config.get("paths", {}).get("roms", ""))).expanduser()
                 systems_arg = sorted(d.name for d in roms_root.iterdir() if d.is_dir()) if roms_root.exists() else []
@@ -249,10 +248,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     dedup_parser.add_argument("--execute", action="store_true", help="Actually move files  (default: dry run)")
     gen_gamelist_parser = subparsers.add_parser("gen-gamelist", help="Generate or update gamelist.xml for one or more systems")
-    gen_gamelist_parser.add_argument("systems", nargs="*", metavar="SYSTEM", help="Systems to process (default: all systems in ROM root)")
+    gen_gamelist_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only process these systems, comma-separated  (default: all)")
     gen_gamelist_parser.add_argument("--dry-run", action="store_true", help="Show what would be written without creating files")
     fetch_media_parser = subparsers.add_parser("fetch-media", help="Download missing cover and screenshot images from ROMM to NAS system folders")
-    fetch_media_parser.add_argument("systems", nargs="*", metavar="SYSTEM", help="Systems to process (default: all systems in ROM root)")
+    fetch_media_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only process these systems, comma-separated  (default: all)")
     fetch_media_parser.add_argument("--execute", action="store_true", help="Actually download files  (default: dry run)")
     clean_media_parser = subparsers.add_parser("clean-media", help="Remove orphaned media files (images, videos, boxart, etc.) from the ROM archive")
     clean_media_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only check these systems, comma-separated  (default: all)")
