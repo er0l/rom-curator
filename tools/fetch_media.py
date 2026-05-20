@@ -84,6 +84,7 @@ def fetch_media(
     nas_folder: str | None = None,
     delay: float = 0.05,
     execute: bool = False,
+    console=None,
 ) -> FetchMediaStats:
     """Analyse (and optionally download) missing cover/screenshot images for *system*."""
     folder_name = nas_folder or system
@@ -145,13 +146,21 @@ def fetch_media(
         return stats
 
     # Execute: download pending files
+    total_pending = len(pending_covers) + len(pending_shots)
+    if console:
+        console.print(f"\n[bold]{system}[/bold] — downloading {total_pending} file(s)…")
+    else:
+        print(f"\n{system} — downloading {total_pending} file(s)…")
+
     with httpx.Client(follow_redirects=True, timeout=30) as client:
         for url, dest in pending_covers:
-            _download(client, url, dest, stats, "cover")
+            ok = _download(client, url, dest, stats, "cover")
+            _print_download(console, "cover", dest.name, ok)
             if delay > 0:
                 time.sleep(delay)
         for url, dest in pending_shots:
-            _download(client, url, dest, stats, "shot")
+            ok = _download(client, url, dest, stats, "shot")
+            _print_download(console, "shot", dest.name, ok)
             if delay > 0:
                 time.sleep(delay)
 
@@ -168,7 +177,7 @@ def _download(
     dest: Path,
     stats: FetchMediaStats,
     kind: str,
-) -> None:
+) -> bool:
     try:
         r = client.get(url)
         r.raise_for_status()
@@ -178,11 +187,29 @@ def _download(
             stats.cover_fetched += 1
         else:
             stats.shot_fetched += 1
-    except Exception:
+        return True
+    except Exception as exc:
         if kind == "cover":
             stats.cover_errors += 1
         else:
             stats.shot_errors += 1
+        return False
+
+
+def _print_download(console, kind: str, filename: str, ok: bool) -> None:
+    label = "cover" if kind == "cover" else "shot "
+    if ok:
+        msg = f"  OK     [{label}]  {filename}"
+        if console:
+            console.print(msg, style="green")
+        else:
+            print(msg)
+    else:
+        msg = f"  ERROR  [{label}]  {filename}"
+        if console:
+            console.print(msg, style="red")
+        else:
+            print(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +265,7 @@ def run_fetch_media(
         try:
             stats = fetch_media(
                 system, roms_root, database_path, romm_url,
-                nas_folder=folder_name, delay=delay, execute=execute,
+                nas_folder=folder_name, delay=delay, execute=execute, console=console,
             )
             all_stats.append(stats)
         except Exception as exc:
