@@ -190,11 +190,8 @@ def _build_game_element(
     ET.SubElement(game, "path").text = path_value
     ET.SubElement(game, "name").text = name
 
-    # Preserved fields (desc, playcount, etc.) from existing gamelist.xml
-    for field in ("desc",):
-        val = preserved.get(field)
-        if val:
-            _add_text(game, field, val)
+    # desc: from metadata (ROMM summary or preserved from existing gamelist)
+    _add_text(game, "desc", metadata.get("desc") or preserved.get("desc"))
 
     # Media fields
     for field in ("image", "thumbnail", "marquee", "video", "screenshot", "fanart"):
@@ -278,6 +275,9 @@ def generate_gamelist(
                 rr.year          AS romm_year,
                 rr.genres,
                 rr.player_count,
+                rr.summary       AS romm_summary,
+                rr.developer     AS romm_developer,
+                rr.publisher     AS romm_publisher,
                 mm.description   AS mame_desc,
                 mm.manufacturer  AS mame_manufacturer,
                 mm.year          AS mame_year
@@ -323,23 +323,28 @@ def generate_gamelist(
             stats["with_video"] += 1
 
         # Build metadata from ROMM / MAME.
-        romm_name  = row["romm_name"]
-        rating     = _rating_str(row["total_rating"])
-        year       = row["romm_year"] or row["mame_year"]
-        genres     = str(row["genres"]) if row["genres"] else None
-        player_ct  = row["player_count"]
-        mame_mfr   = row["mame_manufacturer"]
+        romm_name      = row["romm_name"]
+        rating         = _rating_str(row["total_rating"])
+        year           = row["romm_year"] or row["mame_year"]
+        genres         = str(row["genres"]) if row["genres"] else None
+        player_ct      = row["player_count"]
+        mame_mfr       = row["mame_manufacturer"]
+        romm_summary   = str(row["romm_summary"]) if row["romm_summary"] else None
+        romm_developer = str(row["romm_developer"]) if row["romm_developer"] else None
+        romm_publisher = str(row["romm_publisher"]) if row["romm_publisher"] else None
 
-        # Preserve developer/publisher from existing gamelist when we have no
-        # auto-generated source (MAME only covers arcade; ROMM doesn't expose them).
         preserved = existing.get(path_value, {})
         metadata: dict[str, str | None] = {
             "rating":      rating,
             "releasedate": _releasedate_str(year),
             "genre":       _first(genres),
             "players":     _players_str(player_ct),
-            "developer":   str(mame_mfr) if mame_mfr else preserved.get("developer"),
-            "publisher":   preserved.get("publisher"),
+            # developer: ROMM > MAME manufacturer > preserved from existing gamelist
+            "developer":   romm_developer or (str(mame_mfr) if mame_mfr else preserved.get("developer")),
+            # publisher: ROMM > preserved from existing gamelist
+            "publisher":   romm_publisher or preserved.get("publisher"),
+            # description: ROMM summary > preserved from existing gamelist
+            "desc":        romm_summary or preserved.get("desc"),
         }
         if any(v for v in metadata.values()):
             stats["with_metadata"] += 1

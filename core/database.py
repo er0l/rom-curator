@@ -68,6 +68,9 @@ CREATE TABLE IF NOT EXISTS romm_roms (
     has_cover          INTEGER,
     regions            TEXT,
     tags               TEXT,
+    summary            TEXT,
+    developer          TEXT,
+    publisher          TEXT,
     synced_at          INTEGER
 );
 
@@ -156,6 +159,12 @@ class InventoryDatabase:
             """)
 
         romm_cols = {row[1] for row in self.connection.execute("PRAGMA table_info(romm_roms)")}
+        if "summary" not in romm_cols:
+            self.connection.execute("ALTER TABLE romm_roms ADD COLUMN summary TEXT")
+        if "developer" not in romm_cols:
+            self.connection.execute("ALTER TABLE romm_roms ADD COLUMN developer TEXT")
+        if "publisher" not in romm_cols:
+            self.connection.execute("ALTER TABLE romm_roms ADD COLUMN publisher TEXT")
         if "fs_stem" not in romm_cols:
             self.connection.execute("ALTER TABLE romm_roms ADD COLUMN fs_stem TEXT")
             # Populate fs_stem from fs_name: strip last extension (e.g. "Game.smc" → "Game",
@@ -350,14 +359,16 @@ class InventoryDatabase:
                 total_rating, aggregated_rating, igdb_id, is_identified,
                 genres, themes, game_modes, player_count, year,
                 hltb_main, hltb_main_extra, hltb_completionist,
-                sibling_count, has_cover, regions, tags, synced_at
+                sibling_count, has_cover, regions, tags,
+                summary, developer, publisher, synced_at
             )
             VALUES (
                 :romm_id, :platform_slug, :canonical_system, :fs_name, :fs_stem, :name,
                 :total_rating, :aggregated_rating, :igdb_id, :is_identified,
                 :genres, :themes, :game_modes, :player_count, :year,
                 :hltb_main, :hltb_main_extra, :hltb_completionist,
-                :sibling_count, :has_cover, :regions, :tags, :synced_at
+                :sibling_count, :has_cover, :regions, :tags,
+                :summary, :developer, :publisher, :synced_at
             )
             ON CONFLICT(romm_id) DO UPDATE SET
                 platform_slug      = excluded.platform_slug,
@@ -381,6 +392,9 @@ class InventoryDatabase:
                 has_cover          = excluded.has_cover,
                 regions            = excluded.regions,
                 tags               = excluded.tags,
+                summary            = excluded.summary,
+                developer          = excluded.developer,
+                publisher          = excluded.publisher,
                 synced_at          = excluded.synced_at
             """,
             record,

@@ -211,6 +211,19 @@ def _flatten_rom(
 
     release = igdb.get("first_release_date") or rom.get("first_release_date")
 
+    summary = (
+        igdb.get("summary")
+        or md.get("summary")
+        or md.get("description")
+        or None
+    )
+
+    developer, publisher = _extract_companies(igdb)
+    if not developer:
+        developer = md.get("developer") or None
+    if not publisher:
+        publisher = md.get("publisher") or None
+
     return {
         "romm_id": rom.get("id"),
         "platform_slug": platform_slug or None,
@@ -236,6 +249,9 @@ def _flatten_rom(
         )),
         "regions": _join_names(rom.get("regions") or []),
         "tags": _join_names(rom.get("tags") or []),
+        "summary": summary,
+        "developer": developer,
+        "publisher": publisher,
         "synced_at": synced_at,
     }
 
@@ -326,6 +342,27 @@ def _print_summary(summary: RommSyncSummary, console) -> None:
         console.print("\n".join(lines), style="green")
     else:
         print("\n".join(lines))
+
+
+def _extract_companies(igdb: dict) -> tuple[str | None, str | None]:
+    """Parse IGDB involved_companies into (developer, publisher) strings."""
+    companies = igdb.get("involved_companies")
+    if not companies or not isinstance(companies, list):
+        return None, None
+    devs: list[str] = []
+    pubs: list[str] = []
+    for entry in companies:
+        if not isinstance(entry, dict):
+            continue
+        company = entry.get("company") or {}
+        name = company.get("name") if isinstance(company, dict) else None
+        if not name:
+            continue
+        if entry.get("developer"):
+            devs.append(name)
+        if entry.get("publisher"):
+            pubs.append(name)
+    return ("; ".join(devs) or None), ("; ".join(pubs) or None)
 
 
 def _first(*vals):
