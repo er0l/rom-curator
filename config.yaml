@@ -20,4 +20,5 @@ parsing:
 
 # ROMM integration — set both ROMM_URL and ROMM_TOKEN in .env (never in this file)
 romm:
-  page_size: 200
+  page_size: 200    # ROMs per API page during romm-sync
+  media_delay: 0.05 # seconds between requests during fetch-media
