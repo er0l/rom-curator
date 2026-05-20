@@ -252,6 +252,8 @@ def _flatten_rom(
         "summary": summary,
         "developer": developer,
         "publisher": publisher,
+        "url_cover": rom.get("url_cover") or rom.get("path_cover_large") or None,
+        "url_screenshots": _join_urls(rom.get("url_screenshots") or []),
         "synced_at": synced_at,
     }
 
@@ -370,6 +372,14 @@ def _first(*vals):
         if v:
             return v
     return None
+
+
+def _join_urls(items) -> str | None:
+    """Store a list of URL strings as a semicolon-joined value."""
+    if not items:
+        return None
+    parts = [str(u) for u in items if u]
+    return "; ".join(parts) if parts else None
 
 
 def _join_names(items) -> str | None:

@@ -71,6 +71,8 @@ CREATE TABLE IF NOT EXISTS romm_roms (
     summary            TEXT,
     developer          TEXT,
     publisher          TEXT,
+    url_cover          TEXT,
+    url_screenshots    TEXT,
     synced_at          INTEGER
 );
 
@@ -165,6 +167,10 @@ class InventoryDatabase:
             self.connection.execute("ALTER TABLE romm_roms ADD COLUMN developer TEXT")
         if "publisher" not in romm_cols:
             self.connection.execute("ALTER TABLE romm_roms ADD COLUMN publisher TEXT")
+        if "url_cover" not in romm_cols:
+            self.connection.execute("ALTER TABLE romm_roms ADD COLUMN url_cover TEXT")
+        if "url_screenshots" not in romm_cols:
+            self.connection.execute("ALTER TABLE romm_roms ADD COLUMN url_screenshots TEXT")
         if "fs_stem" not in romm_cols:
             self.connection.execute("ALTER TABLE romm_roms ADD COLUMN fs_stem TEXT")
             # Populate fs_stem from fs_name: strip last extension (e.g. "Game.smc" → "Game",
@@ -360,7 +366,7 @@ class InventoryDatabase:
                 genres, themes, game_modes, player_count, year,
                 hltb_main, hltb_main_extra, hltb_completionist,
                 sibling_count, has_cover, regions, tags,
-                summary, developer, publisher, synced_at
+                summary, developer, publisher, url_cover, url_screenshots, synced_at
             )
             VALUES (
                 :romm_id, :platform_slug, :canonical_system, :fs_name, :fs_stem, :name,
@@ -368,7 +374,7 @@ class InventoryDatabase:
                 :genres, :themes, :game_modes, :player_count, :year,
                 :hltb_main, :hltb_main_extra, :hltb_completionist,
                 :sibling_count, :has_cover, :regions, :tags,
-                :summary, :developer, :publisher, :synced_at
+                :summary, :developer, :publisher, :url_cover, :url_screenshots, :synced_at
             )
             ON CONFLICT(romm_id) DO UPDATE SET
                 platform_slug      = excluded.platform_slug,
@@ -395,6 +401,8 @@ class InventoryDatabase:
                 summary            = excluded.summary,
                 developer          = excluded.developer,
                 publisher          = excluded.publisher,
+                url_cover          = excluded.url_cover,
+                url_screenshots    = excluded.url_screenshots,
                 synced_at          = excluded.synced_at
             """,
             record,
