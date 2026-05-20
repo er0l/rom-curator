@@ -540,7 +540,7 @@ class InventoryDatabase:
                      END)
             LEFT JOIN mame_machines mm
                 ON mm.name = roms.title
-                AND roms.system = 'arcade'
+                AND roms.system IN ('arcade', 'mame2003-plus')
             WHERE (
                 roms.system IN ({placeholders})
                OR (roms.system = 'arcade'
