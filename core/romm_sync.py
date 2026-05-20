@@ -211,18 +211,30 @@ def _flatten_rom(
 
     release = igdb.get("first_release_date") or rom.get("first_release_date")
 
+    # summary is a top-level ROM field in ROMM's API, not nested in igdb_metadata
     summary = (
-        igdb.get("summary")
+        rom.get("summary")
         or md.get("summary")
         or md.get("description")
         or None
     )
 
-    developer, publisher = _extract_companies(igdb)
-    if not developer:
-        developer = md.get("developer") or None
-    if not publisher:
-        publisher = md.get("publisher") or None
+    # ROMM flattens IGDB company roles to a plain name list — no developer/publisher
+    # flags survive. Use the list as-is; store in developer, leave publisher NULL.
+    ss = rom.get("ss_metadata") or {}
+    companies = (
+        _dedupe_list(igdb.get("companies") or [])
+        or _dedupe_list(ss.get("companies") or [])
+        or _dedupe_list(md.get("companies") or [])
+    )
+    developer = "; ".join(companies) if companies else None
+    publisher = None  # indistinguishable from developers in ROMM's API
+
+    # Screenshots: ROMM returns relative paths in merged_screenshots
+    screenshots = [
+        str(s) for s in (rom.get("merged_screenshots") or [])
+        if s and isinstance(s, str)
+    ]
 
     return {
         "romm_id": rom.get("id"),
@@ -248,12 +260,13 @@ def _flatten_rom(
             rom.get("path_cover_large") or rom.get("path_cover_small") or rom.get("url_cover")
         )),
         "regions": _join_names(rom.get("regions") or []),
+        "languages": _join_names(rom.get("languages") or []),
         "tags": _join_names(rom.get("tags") or []),
         "summary": summary,
         "developer": developer,
         "publisher": publisher,
         "url_cover": rom.get("url_cover") or rom.get("path_cover_large") or None,
-        "url_screenshots": _join_urls(rom.get("url_screenshots") or []),
+        "url_screenshots": _join_urls(screenshots),
         "synced_at": synced_at,
     }
 
@@ -346,25 +359,16 @@ def _print_summary(summary: RommSyncSummary, console) -> None:
         print("\n".join(lines))
 
 
-def _extract_companies(igdb: dict) -> tuple[str | None, str | None]:
-    """Parse IGDB involved_companies into (developer, publisher) strings."""
-    companies = igdb.get("involved_companies")
-    if not companies or not isinstance(companies, list):
-        return None, None
-    devs: list[str] = []
-    pubs: list[str] = []
-    for entry in companies:
-        if not isinstance(entry, dict):
-            continue
-        company = entry.get("company") or {}
-        name = company.get("name") if isinstance(company, dict) else None
-        if not name:
-            continue
-        if entry.get("developer"):
-            devs.append(name)
-        if entry.get("publisher"):
-            pubs.append(name)
-    return ("; ".join(devs) or None), ("; ".join(pubs) or None)
+def _dedupe_list(items: list) -> list[str]:
+    """Return unique string items preserving order."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        s = str(item).strip() if item else ""
+        if s and s not in seen:
+            seen.add(s)
+            result.append(s)
+    return result
 
 
 def _first(*vals):

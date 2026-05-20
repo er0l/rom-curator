@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS romm_roms (
     summary            TEXT,
     developer          TEXT,
     publisher          TEXT,
+    languages          TEXT,
     url_cover          TEXT,
     url_screenshots    TEXT,
     synced_at          INTEGER
@@ -167,6 +168,8 @@ class InventoryDatabase:
             self.connection.execute("ALTER TABLE romm_roms ADD COLUMN developer TEXT")
         if "publisher" not in romm_cols:
             self.connection.execute("ALTER TABLE romm_roms ADD COLUMN publisher TEXT")
+        if "languages" not in romm_cols:
+            self.connection.execute("ALTER TABLE romm_roms ADD COLUMN languages TEXT")
         if "url_cover" not in romm_cols:
             self.connection.execute("ALTER TABLE romm_roms ADD COLUMN url_cover TEXT")
         if "url_screenshots" not in romm_cols:
@@ -365,7 +368,7 @@ class InventoryDatabase:
                 total_rating, aggregated_rating, igdb_id, is_identified,
                 genres, themes, game_modes, player_count, year,
                 hltb_main, hltb_main_extra, hltb_completionist,
-                sibling_count, has_cover, regions, tags,
+                sibling_count, has_cover, regions, languages, tags,
                 summary, developer, publisher, url_cover, url_screenshots, synced_at
             )
             VALUES (
@@ -373,7 +376,7 @@ class InventoryDatabase:
                 :total_rating, :aggregated_rating, :igdb_id, :is_identified,
                 :genres, :themes, :game_modes, :player_count, :year,
                 :hltb_main, :hltb_main_extra, :hltb_completionist,
-                :sibling_count, :has_cover, :regions, :tags,
+                :sibling_count, :has_cover, :regions, :languages, :tags,
                 :summary, :developer, :publisher, :url_cover, :url_screenshots, :synced_at
             )
             ON CONFLICT(romm_id) DO UPDATE SET
@@ -397,6 +400,7 @@ class InventoryDatabase:
                 sibling_count      = excluded.sibling_count,
                 has_cover          = excluded.has_cover,
                 regions            = excluded.regions,
+                languages          = excluded.languages,
                 tags               = excluded.tags,
                 summary            = excluded.summary,
                 developer          = excluded.developer,
