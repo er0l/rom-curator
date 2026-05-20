@@ -85,6 +85,7 @@ selection:
   compat_chip: rk3326
   compat_min_playability: Ok
   compat_include_unlisted: true   # games without a compat entry are not penalised
+  compat_unlisted_exclude: [atomiswave, naomi, dreamcast, saturn]
   # ROMM metadata filters — only applied to ROMs that have a romm-sync record.
   # Games with no ROMM data are never penalised by these filters.
   # year_from: 1980    # only include games released from this year

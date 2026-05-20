@@ -117,6 +117,11 @@ def create_export_plan(
     compat_chip: str | None = str(selection.get("compat_chip")) if selection.get("compat_chip") else None
     compat_min_playability: str = str(selection.get("compat_min_playability") or "Ok")
     compat_include_unlisted: bool = bool(selection.get("compat_include_unlisted", True))
+    # Systems where unlisted ROMs are excluded (only confirmed-tested games exported).
+    # Overrides compat_include_unlisted=true for specific systems.
+    compat_unlisted_exclude: frozenset[str] = frozenset(
+        str(s) for s in (selection.get("compat_unlisted_exclude") or [])
+    )
     # compat_lists can be passed in (pre-loaded by caller) or will be empty.
     _compat_lists: dict[str, CompatList] = compat_lists or {}
 
@@ -170,6 +175,7 @@ def create_export_plan(
         selected_for_system = 0
         title_groups = grouped.get(system, {})
         compat = _compat_lists.get(system) if compat_chip else None
+        include_unlisted = compat_include_unlisted and system not in compat_unlisted_exclude
 
         for rows in title_groups.values():
             if is_folder_based:
@@ -216,7 +222,7 @@ def create_export_plan(
                 if is_arcade_system and arcade_exclude_controls and _needs_excluded_control(row, arcade_exclude_controls):
                     summary.skipped_controls += 1
                     continue
-                if not passes_compat(compat, row, compat_min_playability, compat_include_unlisted):
+                if not passes_compat(compat, row, compat_min_playability, include_unlisted):
                     summary.skipped_compat += 1
                     continue
                 skip_reason = _skip_reason(row, preferred_regions, selection)
