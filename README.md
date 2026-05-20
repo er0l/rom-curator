@@ -6,8 +6,9 @@ ROM Curator is a Python tool for inventorying and eventually exporting curated
 views of a large retro ROM archive stored on a NAS.
 
 The project is being built in phases. The current implementation supports safe
-metadata inventory, system mapping, device profiles, reporting, and cautious
-hardlink export builds. It does not modify ROM files.
+metadata inventory, system mapping, device profiles, reporting, cautious
+hardlink export builds, ROMM metadata sync, compatibility filtering, and
+EmulationStation gamelist generation.  It does not modify ROM files.
 
 ## Goals
 
@@ -251,6 +252,7 @@ The export engine:
 - selects one preferred region per title
 - skips beta/prototype/hack files unless the profile allows them
 - filters by ROMM metadata when `romm-sync` has been run (see below)
+- filters by hardware compatibility when compat lists are present (see below)
 - honors `max_games_per_system`
 - refuses to overwrite conflicting existing files
 - supports `--rebuild --yes` for a profile export directory
@@ -272,9 +274,15 @@ Profile `selection:` keys that drive export filtering:
 | `year_to` | int | *(off)* | Skip games released after this year. Games with no year data always pass. Can be overridden per-run with `--to YEAR`. |
 | `min_rating` | number | *(off)* | Skip ROMs with a real IGDB score below this value. Unrated ROMs (`total_rating = 0`) and ROMs with no ROMM record always pass. |
 | `identified_only` | bool | `false` | Skip ROMs that ROMM considers unidentified. ROMs with no ROMM record always pass. |
+| `compat_chip` | string | *(off)* | Enable hardware compatibility filtering using compat lists for this chip (e.g. `rk3326`). |
+| `compat_min_playability` | string | `Ok` | Minimum playability level to include. Levels: `Good` > `Ok` > `Ok/Medium` > `Medium` > `Mediocre` > `None`. |
+| `compat_include_unlisted` | bool | `true` | Include ROMs with no compatibility entry (unlisted = unpenalised). |
+| `compat_unlisted_exclude` | list | `[]` | Systems where only confirmed-compatible ROMs pass — unlisted ROMs are excluded. Use for systems with high compat list coverage (e.g. `[dreamcast, naomi, atomiswave, saturn]`). |
 
 ROMM-based filters require `romm-sync` to have been run first. If the `romm_roms`
 table is empty, `min_rating` and `identified_only` have no effect.
+
+Compatibility filters require `compat-import` to have been run first (see below).
 
 ### Multi-Disc Game Support
 
@@ -306,13 +314,196 @@ inventory scans or export builds — only when `romm-sync` is explicitly run.
 Requires `ROMM_URL` and `ROMM_TOKEN` in a `.env` file at the project root
 (copy `.env.example` to `.env` and fill in both values).
 
+Pagination size is configurable in `config.yaml` (default: 200 ROMs per page):
+
+```yaml
+romm:
+  page_size: 200
+```
+
 Cached fields per ROM:
 
+- `name` — ROMM display name
 - `total_rating`, `aggregated_rating` — IGDB scores
 - `is_identified` — whether ROMM matched this ROM to metadata
 - `genres`, `themes`, `game_modes`, `player_count`
 - `year`, `hltb_main`, `hltb_main_extra`, `hltb_completionist`
 - `sibling_count`, `has_cover`, `regions`, `tags`
+- `summary` — IGDB game description
+- `developer`, `publisher` — from IGDB involved companies
+- `url_cover` — cover image URL (used by `fetch-media`)
+- `url_screenshots` — screenshot URLs (used by `fetch-media`)
+
+After a sync, `Unresolved platforms: N` in the output means N ROMM platform
+slugs did not match any canonical system in `mappings/layouts/romm.yaml`.
+Those ROMs land with `canonical_system = NULL` and are excluded from all
+exports and gamelist generation. To fix: add the missing slug to `romm.yaml`.
+
+### RK3326 Hardware Compatibility Filtering
+
+Community-tested compatibility lists for RK3326-based handhelds (R36S, R39 Max,
+Odroid Go Super) can be imported and used to filter exports to ROMs that are
+known to run acceptably on the hardware.
+
+#### Import compatibility xlsx files
+
+Download compatibility spreadsheets (e.g. from
+[GazousGit/R36S-Game-Compatibility-Lists](https://github.com/GazousGit/R36S-Game-Compatibility-Lists))
+and import them:
+
+```bash
+python3 romcurator.py compat-import Dreamcast.xlsx Saturn.xlsx N64.xlsx
+python3 romcurator.py compat-import *.xlsx --chip rk3326
+python3 romcurator.py compat-import SomeFile.xlsx --chip rk3326 --system psp
+```
+
+Imported YAML files are saved under `mappings/compat/<chip>/`:
+
+```text
+mappings/compat/rk3326/
+├── atomiswave.yaml   ← matched by ROM filename stem
+├── dreamcast.yaml    ← matched by normalised game title
+├── n64.yaml
+├── naomi.yaml
+├── nds.yaml
+├── psp.yaml
+└── saturn.yaml
+```
+
+The importer auto-detects:
+- Which system the file covers (from filename keywords)
+- Which column contains game names and which contains the ROM identifier
+- Whether to match by filename stem (Atomiswave/Naomi) or normalised title
+  (Dreamcast/Saturn/N64/PSP/NDS)
+
+Playability levels (highest to lowest): `Good`, `Ok`, `Ok/Medium`, `Medium`,
+`Mediocre`, `None`.
+
+#### Enable in a profile
+
+```yaml
+selection:
+  compat_chip: rk3326
+  compat_min_playability: Ok        # include Good and Ok
+  compat_include_unlisted: true     # games not in the list are not penalised
+  compat_unlisted_exclude:          # strict mode for well-covered systems
+    - atomiswave
+    - naomi
+    - dreamcast
+    - saturn
+```
+
+With `compat_unlisted_exclude`, only games with a confirmed compatibility entry
+pass for those systems — useful when the compat list is comprehensive enough
+that an absent entry likely means untested/broken.
+
+The `explain` output includes a **Compat** column showing how many ROMs were
+filtered per system.
+
+### gamelist.xml Generation
+
+Generate or update `gamelist.xml` for EmulationStation-compatible frontends
+(Batocera, ES-DE, EmuDeck):
+
+```bash
+python3 romcurator.py gen-gamelist                    # all systems
+python3 romcurator.py gen-gamelist snes megadrive n64 # specific systems
+python3 romcurator.py gen-gamelist snes --dry-run     # preview without writing
+```
+
+For each system, the tool:
+
+1. Queries the inventory database for all ROMs.
+2. Resolves media assets from subfolders (see naming conventions below).
+3. Pulls metadata from ROMM (name, rating, year, genre, players, description,
+   developer, publisher) and from MAME (manufacturer for arcade ROMs).
+4. Merges with any existing `gamelist.xml` — preserving user-edited fields
+   (`desc`, `playcount`, `lastplayed`, `favorite`, `hidden`, `kidgame`).
+5. Writes the result as pretty-printed XML to `<system>/gamelist.xml`.
+
+Two media naming conventions are supported automatically:
+
+**Scraper-suffix style** (Batocera / Skyscraper):
+
+```text
+images/{title}-image.png      → <image>
+images/{title}-thumb.png      → <thumbnail>
+images/{title}-marquee.png    → <marquee>
+videos/{title}-video.mp4      → <video>
+```
+
+**Full-stem style** (ScreenScraper / RetroPie / fetch-media):
+
+```text
+boxart/{stem}.png             → <image>
+wheel/{stem}.png              → <marquee>
+logos/{stem}.png              → <marquee>  (fallback)
+snap/{stem}.mp4               → <video>
+screenshots/{stem}.png        → <screenshot>
+fanarts/{stem}.png            → <fanart>
+```
+
+Metadata priority per field:
+
+| Field | Source priority |
+|-------|----------------|
+| `<name>` | ROMM display name → parsed filename title |
+| `<desc>` | ROMM IGDB summary → preserved from existing gamelist |
+| `<rating>` | ROMM IGDB total_rating (converted to 0.00–1.00) |
+| `<releasedate>` | ROMM year / MAME year |
+| `<developer>` | ROMM involved companies → MAME manufacturer → existing gamelist |
+| `<publisher>` | ROMM involved companies → existing gamelist |
+| `<genre>` | ROMM IGDB genres |
+| `<players>` | ROMM player_count |
+
+`gen-gamelist` requires `romm-sync` to have been run for ROMM fields to be
+populated. Systems with no ROMM sync data still get a valid gamelist from local
+media files and MAME data.
+
+### ROMM Media Download
+
+Download missing cover images and screenshots from ROMM to the NAS system
+folders. Files are placed in the `boxart/` and `screenshots/` subfolders used
+by `gen-gamelist`.
+
+Dry-run (default) — shows what is already present vs what would be downloaded,
+without making any HTTP requests:
+
+```bash
+python3 romcurator.py fetch-media                        # all systems
+python3 romcurator.py fetch-media snes n64 megadrive     # specific systems
+```
+
+Download missing files:
+
+```bash
+python3 romcurator.py fetch-media --execute
+python3 romcurator.py fetch-media snes n64 --execute
+```
+
+Dry-run output columns:
+
+| Column | Meaning |
+|--------|---------|
+| Covers on disk | `present / available from ROMM` |
+| Covers to fetch | Files absent — would be downloaded |
+| Shots on disk | `present / available from ROMM` |
+| Shots to fetch | Files absent — would be downloaded |
+
+Existing files are **never overwritten**. Only files absent from disk are
+downloaded. This makes `fetch-media` safe to run after Skyscraper or
+ScreenScraper has already populated some assets — it fills gaps without
+replacing higher-quality scraped images.
+
+Requires `romm-sync` to have been run first to populate the URL columns. A
+configurable delay between requests (default 50 ms) keeps the local ROMM
+server responsive:
+
+```yaml
+romm:
+  page_size: 200
+  media_delay: 0.05   # seconds between image downloads
+```
 
 ### Arcade Classification
 
@@ -461,15 +652,27 @@ python3 romcurator.py report --systems switch,ps3
 python3 romcurator.py arcade-analyze
 python3 romcurator.py arcade-import
 python3 romcurator.py arcade-import --xml /path/to/mame.xml
+python3 romcurator.py arcade-import --xml mame2003.xml --version mame2003
+python3 romcurator.py arcade-import --xml mame2003-plus.xml --version mame2003-plus
 python3 romcurator.py mappings
 python3 romcurator.py profiles
 python3 romcurator.py profile r36s
 python3 romcurator.py explain r36s
 python3 romcurator.py build r36s
 python3 romcurator.py build r36s --execute
+python3 romcurator.py build r36s --mame-versions mame2003,mame2003-plus --execute
 python3 romcurator.py sync r36s --execute --prune --yes
 python3 romcurator.py romm-sync
 python3 romcurator.py romm-sync --reset
+python3 romcurator.py fetch-media
+python3 romcurator.py fetch-media snes n64 megadrive
+python3 romcurator.py fetch-media --execute
+python3 romcurator.py fetch-media snes n64 --execute
+python3 romcurator.py gen-gamelist
+python3 romcurator.py gen-gamelist snes megadrive n64
+python3 romcurator.py gen-gamelist snes --dry-run
+python3 romcurator.py compat-import Dreamcast.xlsx Saturn.xlsx
+python3 romcurator.py compat-import *.xlsx --chip rk3326
 python3 romcurator.py zip-roms
 python3 romcurator.py zip-roms --system gba --execute
 python3 romcurator.py dedup-roms
@@ -484,9 +687,6 @@ python3 romcurator.py scan-systems
 python3 romcurator.py compare-systems r36s
 python3 romcurator.py profile-add r36s amiga500,amiga1200
 python3 romcurator.py profile-remove r36s megadrive
-python3 romcurator.py arcade-import --xml mame2003.xml --version mame2003
-python3 romcurator.py arcade-import --xml mame2003-plus.xml --version mame2003-plus
-python3 romcurator.py build r36s --mame-versions mame2003,mame2003-plus --execute
 python3 romcurator.py dat-check /mnt/storage/roms/arcade mame-xml/mame2016.xml
 python3 romcurator.py dat-check /mnt/storage/roms/arcade mame-xml/mame2003-plus.xml mame-xml/mame2016.xml
 python3 romcurator.py dat-check /mnt/storage/roms/arcade mame-xml/mame2016.xml --detail
@@ -526,6 +726,17 @@ scan:
   incremental: true
   ignore_hidden: true
   follow_symlinks: false
+
+romm:
+  page_size: 200       # ROMs per API page during romm-sync
+  media_delay: 0.05    # seconds between requests during fetch-media
+```
+
+ROMM credentials go in `.env` (never in `config.yaml`):
+
+```bash
+cp .env.example .env
+# edit .env and set ROMM_URL and ROMM_TOKEN
 ```
 
 For first tests, point `--roms` at a small sample tree instead of the full NAS
@@ -562,19 +773,22 @@ Dependencies:
 
 - PyYAML
 - rich
-- httpx (required for `romm-sync`)
-- python-dotenv (required for `romm-sync`)
+- httpx (required for `romm-sync` and `fetch-media`)
+- python-dotenv (required for `romm-sync` and `fetch-media`)
+- openpyxl (required for `compat-import`)
 
 ## Project Layout
 
 ```text
 rom-curator/
 ├── romcurator.py           ← entry point
-├── config.yaml             ← paths, scan settings, ROMM page_size
+├── config.yaml             ← paths, scan settings, ROMM config
 ├── requirements.txt
 ├── .env.example            ← copy to .env, add ROMM_URL and ROMM_TOKEN
 ├── core/
 │   ├── arcade.py           ← MAME XML parser, arcade sub-system classifier
+│   ├── compat.py           ← RK3326 compatibility list loader and filter
+│   ├── compat_import.py    ← xlsx compatibility list importer
 │   ├── database.py         ← SQLite layer (roms, mame_machines, romm_roms)
 │   ├── dat_check.py        ← compare ROM folder against MAME XML DAT files
 │   ├── exporter.py         ← export plan, hardlink execution, arcade dedup
@@ -584,21 +798,32 @@ rom-curator/
 │   ├── parser.py           ← No-Intro/Redump filename parser
 │   ├── profiles.py         ← profile loader and screen-fit display
 │   ├── reporting.py        ← inventory and arcade reports
-│   ├── romm_sync.py        ← ROMM API sync
+│   ├── romm_sync.py        ← ROMM API sync (metadata + media URLs)
 │   ├── scanner.py          ← streaming filesystem walker
 │   └── system_sync.py      ← system folder discovery and profile comparison
 ├── tools/
-│   ├── zip_roms.py         ← compress uncompressed ROMs to zip
-│   ├── dedup_roms.py       ← move duplicate-region ROMs to recycle bin
 │   ├── clean_media.py      ← remove orphaned media/image/video files
-│   └── gen_m3u.py          ← generate .m3u playlists for multi-disc games
+│   ├── dedup_roms.py       ← move duplicate-region ROMs to recycle bin
+│   ├── fetch_media.py      ← download missing covers/screenshots from ROMM
+│   ├── gen_gamelist.py     ← generate gamelist.xml for EmulationStation
+│   ├── gen_m3u.py          ← generate .m3u playlists for multi-disc games
+│   └── zip_roms.py         ← compress uncompressed ROMs to zip
 ├── mappings/
 │   ├── systems.yaml        ← canonical system → NAS folder name + display metadata
-│   └── layouts/            ← per-target folder aliases
-│       ├── batocera.yaml
-│       ├── emudeck.yaml
-│       ├── r36s.yaml
-│       └── romm.yaml
+│   ├── layouts/            ← per-target folder aliases
+│   │   ├── batocera.yaml
+│   │   ├── emudeck.yaml
+│   │   ├── r36s.yaml
+│   │   └── romm.yaml
+│   └── compat/             ← hardware compatibility lists
+│       └── rk3326/         ← RK3326-based handhelds (R36S, R39 Max, Odroid Go Super)
+│           ├── atomiswave.yaml
+│           ├── dreamcast.yaml
+│           ├── n64.yaml
+│           ├── naomi.yaml
+│           ├── nds.yaml
+│           ├── psp.yaml
+│           └── saturn.yaml
 ├── mame-xml/               ← MAME XML DAT files (named by libretro core)
 ├── profiles/
 │   ├── batocera.yaml
