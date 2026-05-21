@@ -521,12 +521,13 @@ def _group_key(row, *, arcade_dedupe: bool) -> tuple[str, str | None]:
 
 
 def _is_arcade_non_game(row) -> bool:
-    """Return True for MAME BIOS, device, and mechanical ROM entries.
+    """Return True for MAME mechanical ROMs (slot machines, pachinko, pinball).
 
-    These are infrastructure files required by other ROMs (BIOS chips, sound
-    boards, slot-machine hardware) that are not directly playable as games.
+    BIOS and device ROMs are intentionally NOT excluded here — many playable
+    games depend on them at runtime (e.g. neogeo.zip for all Neo Geo games)
+    and must be present in the export folder alongside the game ROMs.
     """
-    return bool(row["mame_isbios"]) or bool(row["mame_isdevice"]) or bool(row["mame_ismechanical"])
+    return bool(row["mame_ismechanical"])
 
 
 def _needs_excluded_control(row, excluded: frozenset[str]) -> bool:

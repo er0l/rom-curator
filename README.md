@@ -267,7 +267,7 @@ Profile `selection:` keys that drive export filtering:
 | `include_hacks` | bool | `false` | Include ROM hacks |
 | `include_translations` | bool | `true` | Include fan translations |
 | `arcade_dedupe` | bool | `true` | Group MAME clones by parent — export one ROM per unique game |
-| `arcade_skip_non_playable` | bool | `true` | Skip BIOS chips, devices, and mechanical (AWP/fruit machine) ROMs |
+| `arcade_skip_non_playable` | bool | `true` | Skip mechanical (AWP/fruit machine/pachinko) ROMs. BIOS and device ROMs are always exported regardless — many games depend on them at runtime (e.g. `neogeo.zip` for all Neo Geo games). |
 | `arcade_exclude_controls` | list | `[]` | Skip arcade games needing listed MAME control types (e.g. `[wheel, spinner, trackball, lightgun]`). Has no effect until `arcade-import` is run from a full `mame -listxml` source. |
 | `mame_versions` | list | *(off)* | Restrict arcade ROMs to machines present in these versioned romsets (e.g. `[mame2003, mame2003-plus]`). Requires `arcade-import --version` for each listed version. Non-arcade systems are unaffected. |
 | `year_from` | int | *(off)* | Skip games released before this year. Games with no year data always pass. Can be overridden per-run with `--from YEAR`. |
