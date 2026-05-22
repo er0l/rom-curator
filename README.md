@@ -430,7 +430,7 @@ For each system, the tool:
    (`desc`, `playcount`, `lastplayed`, `favorite`, `hidden`, `kidgame`).
 5. Writes the result as pretty-printed XML to `<system>/gamelist.xml`.
 
-Two media naming conventions are supported automatically:
+Two media naming conventions are supported automatically (first match wins):
 
 **Scraper-suffix style** (Batocera / Skyscraper):
 
@@ -441,16 +441,26 @@ images/{title}-marquee.png    → <marquee>
 videos/{title}-video.mp4      → <video>
 ```
 
-**Full-stem style** (ScreenScraper / RetroPie / fetch-media):
+**Plain-stem style** (MAME / ScreenScraper / RetroPie / fetch-media):
 
 ```text
+images/{stem}.png             → <image>   (fallback after suffix style)
+videos/{stem}.mp4             → <video>   (fallback after suffix style)
 boxart/{stem}.png             → <image>
 wheel/{stem}.png              → <marquee>
-logos/{stem}.png              → <marquee>  (fallback)
+marquee/{stem}.png            → <marquee> (fallback)
+logos/{stem}.png              → <marquee> (fallback)
 snap/{stem}.mp4               → <video>
 screenshots/{stem}.png        → <screenshot>
 fanarts/{stem}.png            → <fanart>
+flyer/{stem}.png              → <fanart>
 ```
+
+**Subpath systems** (e.g. `mame2003-plus` with `nas: arcade/mame2003-plus`):
+Media and `gamelist.xml` are read/written in the **parent** folder (`arcade/`)
+per Batocera convention. ROM `<path>` entries are prefixed with the subfolder
+name (e.g. `./mame2003-plus/1942.zip`), so both arcade and mame2003-plus
+entries coexist in one `arcade/gamelist.xml`.
 
 Metadata priority per field:
 

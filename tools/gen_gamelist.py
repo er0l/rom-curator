@@ -47,7 +47,8 @@ _VIDEO_EXTS = (".mp4", ".avi", ".mkv")
 # Priority: first match wins.
 _MEDIA_FIELDS: list[tuple[str, list[tuple[str, str, tuple[str, ...]]]]] = [
     ("image", [
-        ("images",      "{title}-image",    _IMAGE_EXTS),
+        ("images",      "{title}-image",    _IMAGE_EXTS),   # Batocera/Skyscraper suffix
+        ("images",      "{stem}",           _IMAGE_EXTS),   # plain stem in images/
         ("boxart",      "{stem}",           _IMAGE_EXTS),
         ("mixart",      "{stem}",           _IMAGE_EXTS),
     ]),
@@ -55,12 +56,14 @@ _MEDIA_FIELDS: list[tuple[str, list[tuple[str, str, tuple[str, ...]]]]] = [
         ("images",      "{title}-thumb",    _IMAGE_EXTS),
     ]),
     ("marquee", [
-        ("images",      "{title}-marquee",  _IMAGE_EXTS),
+        ("images",      "{title}-marquee",  _IMAGE_EXTS),   # Batocera/Skyscraper suffix
         ("wheel",       "{stem}",           _IMAGE_EXTS),
+        ("marquee",     "{stem}",           _IMAGE_EXTS),
         ("logos",       "{stem}",           _IMAGE_EXTS),
     ]),
     ("video", [
-        ("videos",      "{title}-video",    _VIDEO_EXTS),
+        ("videos",      "{title}-video",    _VIDEO_EXTS),   # Batocera/Skyscraper suffix
+        ("videos",      "{stem}",           _VIDEO_EXTS),   # plain stem in videos/
         ("snap",        "{stem}",           _VIDEO_EXTS),
     ]),
     ("screenshot", [
@@ -68,6 +71,7 @@ _MEDIA_FIELDS: list[tuple[str, list[tuple[str, str, tuple[str, ...]]]]] = [
     ]),
     ("fanart", [
         ("fanarts",     "{stem}",           _IMAGE_EXTS),
+        ("flyer",       "{stem}",           _IMAGE_EXTS),
     ]),
 ]
 
@@ -239,25 +243,37 @@ def generate_gamelist(
     database_path: Path,
     nas_folder: str | None = None,
     *,
+    media_dir: Path | None = None,
+    gamelist_dir: Path | None = None,
+    rom_path_prefix: str = "",
     dry_run: bool = False,
 ) -> dict[str, int]:
     """Generate or update gamelist.xml for *system*.
 
     Returns a stats dict with keys: total, with_image, with_video,
     with_metadata, skipped_missing, written.
+
+    For subpath systems (e.g. nas_folder='arcade/mame2003-plus'):
+    - *media_dir* is the parent folder where images/ and videos/ live
+    - *gamelist_dir* is where gamelist.xml is written (same parent)
+    - *rom_path_prefix* is prepended to filenames in <path> (e.g. 'mame2003-plus/')
     """
     stats: dict[str, int] = {
         "total": 0, "with_image": 0, "with_video": 0,
         "with_metadata": 0, "skipped_missing": 0, "written": 0,
     }
 
-    # Determine the NAS system folder.
+    # Determine the NAS system folder (where ROM files live).
     folder_name = nas_folder or system
     system_dir = roms_root / folder_name
     if not system_dir.is_dir():
         raise FileNotFoundError(f"System folder not found: {system_dir}")
 
-    gamelist_path = system_dir / "gamelist.xml"
+    # Media and gamelist may live in a parent folder for subpath systems.
+    _media_dir    = media_dir    or system_dir
+    _gamelist_dir = gamelist_dir or system_dir
+
+    gamelist_path = _gamelist_dir / "gamelist.xml"
     existing = _parse_existing(gamelist_path)
 
     with InventoryDatabase(database_path) as db:
@@ -305,7 +321,7 @@ def generate_gamelist(
         filename   = str(row["filename"])
         title      = str(row["title"])
         stem       = Path(filename).stem
-        path_value = f"./{filename}"
+        path_value = f"./{rom_path_prefix}{filename}"
 
         # Verify the ROM file exists.
         rom_path = system_dir / filename
@@ -313,10 +329,10 @@ def generate_gamelist(
             stats["skipped_missing"] += 1
             continue
 
-        # Resolve media.
+        # Resolve media from the media root (parent folder for subpath systems).
         media: dict[str, str | None] = {}
         for field, _ in _MEDIA_FIELDS:
-            media[field] = _find_media(system_dir, stem, title, field)
+            media[field] = _find_media(_media_dir, stem, title, field)
         if media.get("image"):
             stats["with_image"] += 1
         if media.get("video"):
@@ -406,12 +422,30 @@ def run_gen_gamelist(
             rows_out.append((system, folder_name, "—", "—", "—", "—", "folder not found"))
             continue
 
+        # For subpath systems (e.g. arcade/mame2003-plus), media and gamelist.xml
+        # live in the parent folder (arcade/) per Batocera convention.
+        # ROM <path> entries are prefixed with the subfolder name.
+        if nas_folder and "/" in nas_folder:
+            parent_nas     = nas_folder.rsplit("/", 1)[0]
+            subfolder_name = nas_folder.rsplit("/", 1)[1]
+            media_dir      = roms_root / parent_nas
+            gamelist_dir   = roms_root / parent_nas
+            rom_path_prefix = f"{subfolder_name}/"
+        else:
+            media_dir       = system_dir
+            gamelist_dir    = system_dir
+            rom_path_prefix = ""
+
         try:
             stats = generate_gamelist(
                 system, roms_root, database_path,
-                nas_folder=folder_name, dry_run=dry_run,
+                nas_folder=folder_name,
+                media_dir=media_dir,
+                gamelist_dir=gamelist_dir,
+                rom_path_prefix=rom_path_prefix,
+                dry_run=dry_run,
             )
-            gamelist = system_dir / "gamelist.xml"
+            gamelist = gamelist_dir / "gamelist.xml"
             status = "DRY RUN" if dry_run else f"written → {gamelist}"
             rows_out.append((
                 system,
