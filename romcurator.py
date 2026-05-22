@@ -65,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
         apply_overrides(config, args)
 
         if args.command == "inventory":
-            run_inventory(config, systems=_parse_systems(getattr(args, "systems", None)))
+            run_inventory(config, systems=_parse_systems(getattr(args, "systems", None)), mappings=_load_configured_mappings(config))
         elif args.command == "report":
             run_report(config, mappings=_load_configured_mappings(config), systems=_parse_systems(getattr(args, "systems", None)))
         elif args.command == "arcade-analyze":

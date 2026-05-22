@@ -198,14 +198,25 @@ class InventoryDatabase:
         self.connection.execute("PRAGMA temp_store=MEMORY")
         self.connection.execute("PRAGMA mmap_size=30000000000")
 
-    def get_scan_keys(self, path_prefix: str | None = None) -> dict[str, str]:
+    def get_scan_keys(self, path_prefix: str | None = None, system: str | None = None) -> dict[str, str]:
         """Return {path: scan_key} for all known ROM paths.
 
-        If *path_prefix* is given (e.g. ``/mnt/storage/roms/switch/``),
-        only paths under that prefix are returned, which is much faster for
-        single-system scans of large archives.
+        *path_prefix* (e.g. ``/mnt/storage/roms/switch/``) or *system* (e.g.
+        ``mame2003-plus``) can be used to scope the result to one system.
+        *system* is preferred for subpath systems (e.g. ``arcade/mame2003-plus``)
+        where the path prefix would overlap with the parent system.
         """
-        if path_prefix:
+        if system:
+            rows = self.connection.execute(
+                """
+                SELECT scan_state.path, scan_state.scan_key
+                FROM scan_state
+                INNER JOIN roms ON roms.path = scan_state.path
+                WHERE roms.system = ?
+                """,
+                (system,),
+            ).fetchall()
+        elif path_prefix:
             rows = self.connection.execute(
                 """
                 SELECT scan_state.path, scan_state.scan_key
@@ -273,14 +284,62 @@ class InventoryDatabase:
             payload,
         )
 
-    def remove_stale(self, scan_timestamp: int, path_prefix: str | None = None) -> int:
+    def remove_stale(self, scan_timestamp: int, path_prefix: str | None = None, system: str | None = None) -> int:
         """Remove rows for files that were not seen during the current scan.
 
-        If *path_prefix* is given, only rows whose path starts with that prefix
-        are considered — other systems are left completely untouched.  This is
-        the safe behaviour for single-system inventory runs.
+        *system* (canonical name) scopes the operation to one system via the
+        roms.system column — preferred for subpath systems (e.g.
+        ``arcade/mame2003-plus``) where the path prefix would overlap with
+        the parent system and cause false deletions.
+
+        *path_prefix* scopes by path LIKE prefix — used when system is not
+        given.  Both left None means all stale rows are removed globally
+        (safe only for full-archive scans).
         """
-        if path_prefix:
+        if system:
+            stale_from_state = self.fetch_scalar(
+                """
+                SELECT COUNT(*) FROM scan_state
+                WHERE last_seen < ?
+                  AND path IN (SELECT path FROM roms WHERE system = ?)
+                """,
+                (scan_timestamp, system),
+            )
+            orphaned_roms = self.fetch_scalar(
+                """
+                SELECT COUNT(*) FROM roms
+                WHERE system = ?
+                  AND path NOT IN (SELECT path FROM scan_state)
+                """,
+                (system,),
+            )
+            self.connection.execute(
+                """
+                DELETE FROM roms
+                WHERE system = ?
+                  AND path IN (
+                      SELECT path FROM scan_state WHERE last_seen < ?
+                  )
+                """,
+                (system, scan_timestamp),
+            )
+            self.connection.execute(
+                """
+                DELETE FROM roms
+                WHERE system = ?
+                  AND path NOT IN (SELECT path FROM scan_state)
+                """,
+                (system,),
+            )
+            self.connection.execute(
+                """
+                DELETE FROM scan_state
+                WHERE last_seen < ?
+                  AND path NOT IN (SELECT path FROM roms)
+                """,
+                (scan_timestamp,),
+            )
+        elif path_prefix:
             like = path_prefix + "%"
             stale_from_state = self.fetch_scalar(
                 "SELECT COUNT(*) FROM scan_state WHERE last_seen < ? AND path LIKE ?",

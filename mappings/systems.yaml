@@ -200,7 +200,7 @@ macintosh:
   display: {aspect: "4:3", orientation: landscape}
 
 mame2003-plus:
-  nas: mame2003-plus
+  nas: arcade/mame2003-plus
 
 mastersystem:
   nas: mastersystem

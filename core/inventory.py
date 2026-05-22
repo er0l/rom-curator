@@ -36,6 +36,7 @@ BATCH_SIZE = 1000
 def run_inventory(
     config: dict[str, object],
     systems: list[str] | None = None,
+    mappings: dict[str, dict[str, object]] | None = None,
 ) -> InventorySummary:
     paths = config.get("paths", {})
     scan_config = config.get("scan", {})
@@ -49,8 +50,15 @@ def run_inventory(
     follow_symlinks = bool(scan_config.get("follow_symlinks", False))
     excluded_extensions = _load_excluded_extensions(config)
 
+    # Build nas_path → canonical lookup from mappings (supports subpath nas entries).
+    nas_to_canonical: dict[str, str] = {}
+    if mappings:
+        for canonical, meta in mappings.items():
+            if isinstance(meta, dict) and meta.get("nas"):
+                nas_to_canonical[str(meta["nas"])] = canonical
+
     if systems:
-        scan_label = ", ".join(f"{roms_root}/{s}" for s in systems)
+        scan_label = ", ".join(f"{roms_root}/{_nas_path(s, mappings)}" for s in systems)
     else:
         scan_label = str(roms_root)
 
@@ -75,11 +83,20 @@ def run_inventory(
     with InventoryDatabase(database_path) as db:
         db.initialize()
 
-        for system in scan_targets:
-            path_prefix = str(roms_root / system) + "/" if system else None
-            known_scan_keys = db.get_scan_keys(path_prefix=path_prefix) if incremental else {}
+        for canonical in scan_targets:
+            if canonical:
+                nas = _nas_path(canonical, mappings)
+                # Skip subdirs that are themselves canonical system roots nested
+                # under this system's NAS folder (e.g. skip mame2003-plus/ when
+                # scanning arcade/ so those files are inventoried separately).
+                skip = _child_subdirs(nas, nas_to_canonical)
+                known_scan_keys = db.get_scan_keys(system=canonical) if incremental else {}
+            else:
+                nas = None
+                skip = frozenset()
+                known_scan_keys = db.get_scan_keys() if incremental else {}
 
-            task_label = f"Walking {system or 'ROM archive'}"
+            task_label = f"Walking {nas or 'ROM archive'}"
             if Progress:
                 progress = Progress(
                     SpinnerColumn(),
@@ -92,10 +109,13 @@ def run_inventory(
                     task_id = progress.add_task(task_label, total=None)
                     for record in iter_rom_files(
                         roms_root,
-                        system=system,
+                        system=nas,
+                        canonical_system=canonical,
+                        nas_to_canonical=nas_to_canonical if not canonical else None,
                         ignore_hidden=ignore_hidden,
                         follow_symlinks=follow_symlinks,
                         excluded_extensions=excluded_extensions,
+                        skip_subdirs=skip,
                     ):
                         scanned, added_or_updated, skipped_unchanged = _handle_record(
                             db,
@@ -113,10 +133,13 @@ def run_inventory(
             else:
                 for record in iter_rom_files(
                     roms_root,
-                    system=system,
+                    system=nas,
+                    canonical_system=canonical,
+                    nas_to_canonical=nas_to_canonical if not canonical else None,
                     ignore_hidden=ignore_hidden,
                     follow_symlinks=follow_symlinks,
                     excluded_extensions=excluded_extensions,
+                    skip_subdirs=skip,
                 ):
                     scanned, added_or_updated, skipped_unchanged = _handle_record(
                         db,
@@ -131,7 +154,10 @@ def run_inventory(
                     if scanned % BATCH_SIZE == 0:
                         db.commit()
 
-            removed_stale += db.remove_stale(scan_timestamp, path_prefix=path_prefix)
+            if canonical:
+                removed_stale += db.remove_stale(scan_timestamp, system=canonical)
+            else:
+                removed_stale += db.remove_stale(scan_timestamp)
 
         db.commit()
 
@@ -186,6 +212,33 @@ def _handle_record(
     )
     added_or_updated += 1
     return scanned, added_or_updated, skipped_unchanged
+
+
+def _nas_path(canonical: str, mappings: dict[str, dict[str, object]] | None) -> str:
+    """Return the NAS folder path for a canonical system name."""
+    if mappings and canonical in mappings:
+        meta = mappings[canonical]
+        if isinstance(meta, dict) and meta.get("nas"):
+            return str(meta["nas"])
+    return canonical
+
+
+def _child_subdirs(nas_path: str, nas_to_canonical: dict[str, str]) -> frozenset[str]:
+    """Return immediate subdirectory names that are themselves canonical NAS roots.
+
+    When scanning ``arcade/``, this returns ``{"mame2003-plus"}`` so the walker
+    skips that subfolder — those files are inventoried separately as their own
+    canonical system.
+    """
+    prefix = nas_path.rstrip("/") + "/"
+    subdirs: set[str] = set()
+    for other_nas in nas_to_canonical:
+        if other_nas.startswith(prefix):
+            remainder = other_nas[len(prefix):]
+            first = remainder.split("/")[0]
+            if first:
+                subdirs.add(first)
+    return frozenset(subdirs)
 
 
 def _load_excluded_extensions(config: dict[str, object]) -> frozenset[str]:

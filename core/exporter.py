@@ -125,6 +125,14 @@ def create_export_plan(
     # compat_lists can be passed in (pre-loaded by caller) or will be empty.
     _compat_lists: dict[str, CompatList] = compat_lists or {}
 
+    # NAS path lookup: canonical → nas folder (may be a subpath like arcade/mame2003-plus).
+    # Used by _destination_for to strip the correct prefix from relative_path.
+    _nas_paths: dict[str, str] = {
+        canonical: str(meta.get("nas", canonical))
+        for canonical, meta in mappings.items()
+        if isinstance(meta, dict)
+    }
+
     # Folder-based systems store each game as a subfolder (e.g. scummvm, dos, windows).
     # The export unit is the whole subfolder; all files within it are hardlinked together.
     folder_based_systems: frozenset[str] = frozenset(
@@ -196,7 +204,8 @@ def create_export_plan(
                         source = Path(str(row["path"]))
                     destination = _destination_for(
                         export_root, target_alias,
-                        str(row["system"]), str(row["relative_path"]),
+                        _nas_paths.get(str(row["system"]), str(row["system"])),
+                        str(row["relative_path"]),
                     )
                     file_size = int(row["size"])
                     plan.items.append(ExportPlanItem(
@@ -254,9 +263,11 @@ def create_export_plan(
                 source = _roms_root / str(chosen["relative_path"])
             else:
                 source = Path(str(chosen["path"]))
-            # Use the original NAS system folder (e.g. 'arcade') for path stripping,
-            # not the effective sub-system name.
-            destination = _destination_for(export_root, target_alias, str(chosen["system"]), str(chosen["relative_path"]))
+            destination = _destination_for(
+                export_root, target_alias,
+                _nas_paths.get(str(chosen["system"]), str(chosen["system"])),
+                str(chosen["relative_path"]),
+            )
             item_size = int(chosen["size"])
             plan.items.append(
                 ExportPlanItem(
@@ -599,9 +610,15 @@ def _effective_system(row) -> str:
     return str(row["system"])
 
 
-def _destination_for(export_root: Path, target_alias: str, system: str, relative_path: str) -> Path:
-    parts = Path(relative_path).parts
-    remainder = parts[1:] if parts and parts[0] == system else parts
+def _destination_for(export_root: Path, target_alias: str, nas_path: str, relative_path: str) -> Path:
+    """Compute export destination by stripping the NAS prefix from relative_path.
+
+    ``nas_path`` may be a subpath like ``arcade/mame2003-plus``, so we strip
+    all its components rather than just the first folder name.
+    """
+    nas_parts = Path(nas_path).parts
+    rel_parts = Path(relative_path).parts
+    remainder = rel_parts[len(nas_parts):] if rel_parts[:len(nas_parts)] == nas_parts else rel_parts
     return export_root / target_alias / Path(*remainder)
 
 

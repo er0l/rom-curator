@@ -167,6 +167,14 @@ The matrix maps canonical ROM Curator names to target ecosystem folders:
 - R36S/R39 Max
 - Batocera
 
+#### Subpath NAS folders
+
+A system's `nas:` entry in `systems.yaml` can be a subpath like
+`arcade/mame2003-plus`. Inventory, export, and all other commands resolve it
+automatically. When scanning the parent system (`arcade`), its subpath child
+is skipped so files are never double-counted. The Batocera layout maps the
+child to `mame/mame2003-plus` so it lands in Batocera's expected subfolder.
+
 #### Folder-based systems
 
 Some systems store each game as a subfolder containing multiple files
