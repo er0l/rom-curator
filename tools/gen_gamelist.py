@@ -112,8 +112,9 @@ _MEDIA_FIELDS: list[tuple[str, list[tuple[str, str, tuple[str, ...]]]]] = [
         ("screenshots", "{stem}",           _IMAGE_EXTS),
     ]),
     ("fanart", [
-        ("fanarts",     "{stem}",           _IMAGE_EXTS),
-        ("flyer",       "{stem}",           _IMAGE_EXTS),
+        ("images",      "{title}-fanart",   _IMAGE_EXTS),   # post-normalize Batocera style
+        ("fanarts",     "{stem}",           _IMAGE_EXTS),   # plain-stem legacy
+        ("flyer",       "{stem}",           _IMAGE_EXTS),   # plain-stem legacy
     ]),
 ]
 
