@@ -138,6 +138,7 @@ def main(argv: list[str] | None = None) -> int:
                 systems=_parse_systems(args.systems),
                 media_folders=media_folders,
                 remove_superseded=args.superseded,
+                prefer_png=args.prefer_png,
                 execute=args.execute,
                 mappings=_load_configured_mappings(config),
             )
@@ -329,6 +330,7 @@ def build_parser() -> argparse.ArgumentParser:
     clean_media_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only check these systems, comma-separated  (default: all)")
     clean_media_parser.add_argument("--media-folders", metavar="FOLDER,...", help="Media subfolder names to check, comma-separated  (default: images,videos,snap,boxart,wheel,...)")
     clean_media_parser.add_argument("--superseded", action="store_true", help="Also remove plain-stem files in images/ and videos/ that are shadowed by a suffix-style version (e.g. drakton.png when drakton-image.png exists)")
+    clean_media_parser.add_argument("--prefer-png", dest="prefer_png", action="store_true", help="Remove JPG/JPEG files that have a PNG counterpart with the same stem (e.g. 1942-image.jpg when 1942-image.png exists)")
     clean_media_parser.add_argument("--execute", action="store_true", help="Actually move files to recycle bin  (default: dry run)")
     gen_m3u_parser = subparsers.add_parser("gen-m3u", help="Generate .m3u playlist files for multi-disc games")
     gen_m3u_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only process these systems, comma-separated  (default: all)")

@@ -88,6 +88,7 @@ class CleanMediaSummary:
     total_files: int = 0
     orphaned: int = 0
     superseded: int = 0
+    png_preferred: int = 0   # JPG/JPEG duplicates removed in favour of PNG
     moved: int = 0
     errors: int = 0
     dry_run: bool = True
@@ -152,6 +153,7 @@ def run_clean_media(
     systems: list[str] | None = None,
     media_folders: list[str] | None = None,
     remove_superseded: bool = False,
+    prefer_png: bool = False,
     execute: bool = False,
     mappings: dict[str, object] | None = None,
 ) -> CleanMediaSummary:
@@ -234,10 +236,19 @@ def run_clean_media(
                 if not media_dir.is_dir():
                     continue
 
-                # Build a case-insensitive index of this folder for superseded checks.
+                # Build a case-insensitive index of this folder for superseded
+                # checks and PNG-preference deduplication.
                 folder_index: dict[str, str] = (
-                    _build_folder_index(media_dir) if remove_superseded else {}
+                    _build_folder_index(media_dir)
+                    if (remove_superseded or prefer_png)
+                    else {}
                 )
+
+                # PNG-preference pass: collect stems that have both a PNG and a
+                # JPG/JPEG so the per-file loop below can flag the lossy copy.
+                png_preferred_stems: set[str] = set()
+                if prefer_png and folder_index:
+                    png_preferred_stems = _find_jpg_duplicates(folder_index)
 
                 for media_file in sorted(media_dir.iterdir()):
                     if not media_file.is_file():
@@ -278,15 +289,25 @@ def run_clean_media(
                             rel = str(media_file.relative_to(roms_root))
                             orphaned.append((media_file, rel))
                             summary.superseded += 1
+                            continue
+
+                    # PNG-preference: flag JPG/JPEG when a PNG of the same stem exists.
+                    if prefer_png and media_file.suffix.lower() in (".jpg", ".jpeg"):
+                        if stem_l in png_preferred_stems:
+                            rel = str(media_file.relative_to(roms_root))
+                            orphaned.append((media_file, rel))
+                            summary.png_preferred += 1
 
     _print_header(summary, recycle_bin, folders_to_check, systems, console)
     _print_plan(orphaned, console)
 
     if not execute:
-        total_to_remove = summary.orphaned + summary.superseded
+        total_to_remove = summary.orphaned + summary.superseded + summary.png_preferred
         parts = [f"{summary.orphaned} orphaned"]
         if summary.superseded:
             parts.append(f"{summary.superseded} superseded")
+        if summary.png_preferred:
+            parts.append(f"{summary.png_preferred} jpg→png preferred")
         _print(
             console,
             f"\nDRY RUN complete — {total_to_remove} file(s) to remove "
@@ -323,6 +344,25 @@ def run_clean_media(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+def _find_jpg_duplicates(folder_index: dict[str, str]) -> set[str]:
+    """Return the set of lowercased stems that have both a PNG and a JPG/JPEG.
+
+    Only these stems' JPG/JPEG files should be flagged for removal — any stem
+    that has *only* a JPG (no PNG counterpart) is kept as-is.
+    """
+    png_stems: set[str] = set()
+    jpg_stems: set[str] = set()
+    for lower_name in folder_index:
+        p = Path(lower_name)
+        ext = p.suffix
+        stem = p.stem
+        if ext == ".png":
+            png_stems.add(stem)
+        elif ext in (".jpg", ".jpeg"):
+            jpg_stems.add(stem)
+    return png_stems & jpg_stems   # stems that have BOTH — the JPG is redundant
+
+
 def _strip_scraper_suffix(stem: str) -> str:
     """Return the core game name by stripping known scraper suffixes."""
     for suffix in _SCRAPER_SUFFIXES:
@@ -350,6 +390,9 @@ def _print_header(
         if summary.superseded:
             table.add_row("Superseded:",    str(summary.superseded)
                           + "  (plain-stem shadowed by suffix-style version)")
+        if summary.png_preferred:
+            table.add_row("PNG preferred:", str(summary.png_preferred)
+                          + "  (JPG removed — PNG counterpart exists)")
         table.add_row("Recycle bin:",   str(recycle_bin / "roms"))
         table.add_row("Mode:",          "EXECUTE" if not summary.dry_run else "DRY RUN")
         console.print(table)
@@ -361,6 +404,9 @@ def _print_header(
         if summary.superseded:
             print(f"Superseded:     {summary.superseded}"
                   "  (plain-stem shadowed by suffix-style version)")
+        if summary.png_preferred:
+            print(f"PNG preferred:  {summary.png_preferred}"
+                  "  (JPG removed — PNG counterpart exists)")
         print(f"Recycle bin:    {recycle_bin / 'roms'}")
         print(f"Mode:           {'EXECUTE' if not summary.dry_run else 'DRY RUN'}")
     print()

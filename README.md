@@ -980,6 +980,8 @@ python3 romcurator.py clean-media --media-folders boxart,wheel --execute
 
 # Also remove plain-stem files shadowed by suffix-style versions
 python3 romcurator.py clean-media --superseded --execute
+# Remove JPG files that have a PNG counterpart (prefer lossless)
+python3 romcurator.py clean-media --prefer-png --execute
 ```
 
 Scanned subfolders (default, all configurable via `--media-folders`):
@@ -997,6 +999,10 @@ Two naming conventions are matched automatically:
 that are shadowed by a suffix-style version for the same title (e.g.
 `drakton.png` when `drakton-image.png` exists).  These files match a ROM so
 they are not orphaned, but they are never picked up by gen-gamelist.
+
+`--prefer-png` removes JPG/JPEG files that have an identical-stem PNG in the
+same folder (e.g. `1942-image.jpg` when `1942-image.png` exists).  JPG files
+with no PNG counterpart are left untouched.
 
 System files (`Thumbs.db`, `.DS_Store`, `gamelist.xml`, etc.) are always skipped.
 
