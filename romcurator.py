@@ -111,7 +111,13 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "rename-media":
             from tools.rename_media import run_rename_media
             media_folders = _parse_systems(args.media_folders)
-            run_rename_media(config, systems=_parse_systems(args.systems), media_folders=media_folders, execute=args.execute)
+            run_rename_media(
+                config,
+                systems=_parse_systems(args.systems),
+                media_folders=media_folders,
+                execute=args.execute,
+                mappings=_load_configured_mappings(config),
+            )
         elif args.command == "normalize-media":
             from tools.normalize_media import run_normalize_media
             src_folders = _parse_systems(args.source_folders)
@@ -122,6 +128,7 @@ def main(argv: list[str] | None = None) -> int:
                 rename_inline=args.rename_inline,
                 clean_superseded=args.clean_superseded,
                 execute=args.execute,
+                mappings=_load_configured_mappings(config),
             )
         elif args.command == "clean-media":
             from tools.clean_media import run_clean_media
@@ -132,6 +139,7 @@ def main(argv: list[str] | None = None) -> int:
                 media_folders=media_folders,
                 remove_superseded=args.superseded,
                 execute=args.execute,
+                mappings=_load_configured_mappings(config),
             )
         elif args.command == "gen-gamelist":
             from tools.gen_gamelist import run_gen_gamelist

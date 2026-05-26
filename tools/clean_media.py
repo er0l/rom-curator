@@ -153,6 +153,7 @@ def run_clean_media(
     media_folders: list[str] | None = None,
     remove_superseded: bool = False,
     execute: bool = False,
+    mappings: dict[str, object] | None = None,
 ) -> CleanMediaSummary:
     paths = config.get("paths", {})
     if not isinstance(paths, dict):
@@ -190,7 +191,21 @@ def run_clean_media(
         db.initialize()
 
         for system in scan_systems:
-            system_dir = roms_root / system
+            # Resolve the NAS folder via mappings (handles subpath systems such
+            # as mame2003-plus whose nas is 'arcade/mame2003-plus').  For subpath
+            # systems the media lives in the parent folder (e.g. arcade/).
+            sys_meta = (mappings or {}).get(system, {})
+            nas_folder = (
+                str(sys_meta.get("nas"))
+                if isinstance(sys_meta, dict) and sys_meta.get("nas")
+                else system
+            )
+            if "/" in nas_folder:
+                parent_nas = nas_folder.rsplit("/", 1)[0]
+                system_dir = roms_root / parent_nas
+            else:
+                system_dir = roms_root / nas_folder
+
             if not system_dir.is_dir():
                 _print(console, f"Warning: system folder not found: {system_dir}", style="yellow")
                 continue
