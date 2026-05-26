@@ -87,9 +87,63 @@ _SCRAPER_SUFFIXES: frozenset[str] = frozenset({
 class CleanMediaSummary:
     total_files: int = 0
     orphaned: int = 0
+    superseded: int = 0
     moved: int = 0
     errors: int = 0
     dry_run: bool = True
+
+
+# Suffix-style variants that can supersede a plain-stem file in images/.
+# If any of these exists for the same title, the plain-stem file is redundant.
+_IMAGE_SUPERSEDING_SUFFIXES: tuple[str, ...] = (
+    "-image", "-thumb", "-marquee", "-fanart", "-screenshot",
+)
+_VIDEO_SUPERSEDING_SUFFIXES: tuple[str, ...] = ("-video",)
+
+# Extensions used when probing for superseding files.
+_IMAGE_EXTS_SET: tuple[str, ...] = (".png", ".jpg", ".jpeg")
+_VIDEO_EXTS_SET: tuple[str, ...] = (".mp4", ".avi", ".mkv")
+
+
+def _is_superseded(
+    stem: str,
+    title: str,
+    folder_name: str,
+    folder_index: dict[str, str],  # lower_filename → actual_filename (from _build_folder_index)
+) -> bool:
+    """Return True if a plain-stem media file is shadowed by a suffix-style version.
+
+    A plain-stem file like ``images/drakton.png`` is superseded when a
+    suffix-style file like ``images/drakton-image.png`` already exists in the
+    same folder, because gen-gamelist always picks the suffix-style file first.
+    Only checks files that have NO scraper suffix (i.e. pure plain-stem files).
+    """
+    # Only consider plain-stem files (no scraper suffix on the stem).
+    if _strip_scraper_suffix(stem) != stem:
+        return False
+
+    if folder_name == "images":
+        suffixes = _IMAGE_SUPERSEDING_SUFFIXES
+        exts     = _IMAGE_EXTS_SET
+    elif folder_name == "videos":
+        suffixes = _VIDEO_SUPERSEDING_SUFFIXES
+        exts     = _VIDEO_EXTS_SET
+    else:
+        return False  # other folders don't have a suffix convention
+
+    title_l = title.lower()
+    for suffix in suffixes:
+        for ext in exts:
+            if (title_l + suffix + ext) in folder_index:
+                return True
+    return False
+
+
+def _build_folder_index(folder: Path) -> dict[str, str]:
+    """Return {lower_filename: actual_filename} for all files in *folder*."""
+    if not folder.is_dir():
+        return {}
+    return {f.name.lower(): f.name for f in folder.iterdir() if f.is_file()}
 
 
 def run_clean_media(
@@ -97,6 +151,7 @@ def run_clean_media(
     *,
     systems: list[str] | None = None,
     media_folders: list[str] | None = None,
+    remove_superseded: bool = False,
     execute: bool = False,
 ) -> CleanMediaSummary:
     paths = config.get("paths", {})
@@ -151,11 +206,23 @@ def run_clean_media(
             )
             rom_stems:  set[str] = {Path(str(r["filename"])).stem.lower() for r in rows}
             rom_titles: set[str] = {str(r["title"]).lower() for r in rows}
+            # stem_lower → canonical title (needed for superseded check)
+            stem_to_title: dict[str, str] = {
+                Path(str(r["filename"])).stem.lower(): str(r["title"]) for r in rows
+            }
+            title_lower_to_title: dict[str, str] = {
+                str(r["title"]).lower(): str(r["title"]) for r in rows
+            }
 
             for folder_name in folders_to_check:
                 media_dir = system_dir / folder_name
                 if not media_dir.is_dir():
                     continue
+
+                # Build a case-insensitive index of this folder for superseded checks.
+                folder_index: dict[str, str] = (
+                    _build_folder_index(media_dir) if remove_superseded else {}
+                )
 
                 for media_file in sorted(media_dir.iterdir()):
                     if not media_file.is_file():
@@ -174,21 +241,41 @@ def run_clean_media(
                     #   - its suffix-stripped base matches a ROM title (scraper-style)
                     stem_l = stem.lower()
                     base_l = base.lower()
-                    if stem_l in rom_stems or base_l in rom_stems or base_l in rom_titles:
+                    matched = (
+                        stem_l in rom_stems or base_l in rom_stems or base_l in rom_titles
+                    )
+
+                    if not matched:
+                        rel = str(media_file.relative_to(roms_root))
+                        orphaned.append((media_file, rel))
+                        summary.orphaned += 1
                         continue
 
-                    rel = str(media_file.relative_to(roms_root))
-                    orphaned.append((media_file, rel))
-                    summary.orphaned += 1
+                    # Matched a ROM — check if it's superseded by a suffix-style version.
+                    if remove_superseded and folder_name in ("images", "videos"):
+                        # Resolve the canonical title for this file.
+                        title = (
+                            stem_to_title.get(stem_l)
+                            or stem_to_title.get(base_l)
+                            or title_lower_to_title.get(base_l)
+                        )
+                        if title and _is_superseded(stem, title, folder_name, folder_index):
+                            rel = str(media_file.relative_to(roms_root))
+                            orphaned.append((media_file, rel))
+                            summary.superseded += 1
 
     _print_header(summary, recycle_bin, folders_to_check, systems, console)
     _print_plan(orphaned, console)
 
     if not execute:
+        total_to_remove = summary.orphaned + summary.superseded
+        parts = [f"{summary.orphaned} orphaned"]
+        if summary.superseded:
+            parts.append(f"{summary.superseded} superseded")
         _print(
             console,
-            f"\nDRY RUN complete — {summary.orphaned} orphaned file(s) across "
-            f"{summary.total_files} media file(s) scanned. "
+            f"\nDRY RUN complete — {total_to_remove} file(s) to remove "
+            f"({', '.join(parts)}) across {summary.total_files} media file(s) scanned. "
             "Pass --execute to move them to the recycle bin.",
             style="bold",
         )
@@ -245,6 +332,9 @@ def _print_header(
         table.add_row("Media folders:", ", ".join(folders))
         table.add_row("Total files:",   str(summary.total_files))
         table.add_row("Orphaned:",      str(summary.orphaned))
+        if summary.superseded:
+            table.add_row("Superseded:",    str(summary.superseded)
+                          + "  (plain-stem shadowed by suffix-style version)")
         table.add_row("Recycle bin:",   str(recycle_bin / "roms"))
         table.add_row("Mode:",          "EXECUTE" if not summary.dry_run else "DRY RUN")
         console.print(table)
@@ -253,6 +343,9 @@ def _print_header(
         print(f"Media folders:  {', '.join(folders)}")
         print(f"Total files:    {summary.total_files}")
         print(f"Orphaned:       {summary.orphaned}")
+        if summary.superseded:
+            print(f"Superseded:     {summary.superseded}"
+                  "  (plain-stem shadowed by suffix-style version)")
         print(f"Recycle bin:    {recycle_bin / 'roms'}")
         print(f"Mode:           {'EXECUTE' if not summary.dry_run else 'DRY RUN'}")
     print()
