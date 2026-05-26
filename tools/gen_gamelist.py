@@ -294,6 +294,7 @@ def generate_gamelist(
     media_dir: Path | None = None,
     gamelist_dir: Path | None = None,
     rom_path_prefix: str = "",
+    romm_system: str | None = None,
     dry_run: bool = False,
 ) -> dict[str, int]:
     """Generate or update gamelist.xml for *system*.
@@ -305,6 +306,11 @@ def generate_gamelist(
     - *media_dir* is the parent folder where images/ and videos/ live
     - *gamelist_dir* is where gamelist.xml is written (same parent)
     - *rom_path_prefix* is prepended to filenames in <path> (e.g. 'mame2003-plus/')
+
+    *romm_system* is the canonical system name used in romm_roms for this
+    system's ROMs.  For subpath systems like mame2003-plus it differs from
+    *system* (e.g. romm_system='arcade') because ROMM stores all arcade
+    variants under the arcade platform.  Defaults to *system*.
     """
     stats: dict[str, int] = {
         "total": 0, "with_image": 0, "with_video": 0,
@@ -333,6 +339,11 @@ def generate_gamelist(
         db.initialize()
 
         # Fetch all ROMs for this system with ROMM and MAME metadata.
+        # romm_roms.canonical_system may differ from r.system for subpath
+        # systems (e.g. mame2003-plus ROMs are stored under canonical='arcade'
+        # in ROMM).  We pass romm_system as a second binding so the JOIN
+        # matches either the direct system name or its ROMM parent.
+        _romm_system = romm_system or system
         rows = db.fetch_all(
             """
             SELECT
@@ -352,7 +363,7 @@ def generate_gamelist(
                 mm.year          AS mame_year
             FROM roms r
             LEFT JOIN romm_roms rr
-                ON rr.canonical_system = r.system
+                ON (rr.canonical_system = r.system OR rr.canonical_system = ?)
                 AND (rr.fs_name = r.filename
                      OR rr.fs_stem = CASE
                          WHEN SUBSTR(r.filename,-5,1)='.' THEN SUBSTR(r.filename,1,LENGTH(r.filename)-5)
@@ -364,7 +375,7 @@ def generate_gamelist(
             WHERE r.system = ?
             ORDER BY r.title, r.filename
             """,
-            (system,),
+            (_romm_system, system),
         )
 
     root = ET.Element("gameList")
@@ -484,10 +495,21 @@ def run_gen_gamelist(
             media_dir      = roms_root / parent_nas
             gamelist_dir   = roms_root / parent_nas
             rom_path_prefix = f"{subfolder_name}/"
+            # Derive the ROMM canonical system: find the mapping key whose NAS
+            # folder equals parent_nas (e.g. 'arcade' → 'arcade').  Fall back
+            # to the bare parent folder name when no explicit mapping exists.
+            romm_system: str | None = None
+            for sys_key, sys_meta in mappings.items():
+                sys_nas = sys_meta.get("nas") if isinstance(sys_meta, dict) else None
+                if (sys_nas or sys_key) == parent_nas:
+                    romm_system = sys_key
+                    break
+            romm_system = romm_system or parent_nas
         else:
             media_dir       = system_dir
             gamelist_dir    = system_dir
             rom_path_prefix = ""
+            romm_system     = system  # no subpath — romm canonical == system
 
         try:
             stats = generate_gamelist(
@@ -496,6 +518,7 @@ def run_gen_gamelist(
                 media_dir=media_dir,
                 gamelist_dir=gamelist_dir,
                 rom_path_prefix=rom_path_prefix,
+                romm_system=romm_system,
                 dry_run=dry_run,
             )
             gamelist = gamelist_dir / "gamelist.xml"

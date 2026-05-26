@@ -462,6 +462,11 @@ per Batocera convention. ROM `<path>` entries are prefixed with the subfolder
 name (e.g. `./mame2003-plus/1942.zip`), so both arcade and mame2003-plus
 entries coexist in one `arcade/gamelist.xml`.
 
+ROMM metadata is fetched correctly for subpath systems: when the parent folder
+is `arcade/`, gen-gamelist also matches `romm_roms` rows with
+`canonical_system='arcade'`, so mame2003-plus ROMs receive the same ROMM
+descriptions, ratings, and other metadata as standard arcade ROMs.
+
 Metadata priority per field:
 
 | Field | Source priority |
