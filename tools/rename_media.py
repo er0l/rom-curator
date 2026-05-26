@@ -167,9 +167,15 @@ def run_rename_media(
                 continue
 
             # Build lookup structures — all lowercased for case-insensitive ops.
+            # Include co-resident systems (e.g. arcade when processing
+            # mame2003-plus) so their media is not incorrectly treated as
+            # unmatched when both share the same media folder.
+            from tools.clean_media import _co_resident_systems
+            db_systems = _co_resident_systems(system, nas_folder, mappings or {})
+            placeholders = ",".join("?" * len(db_systems))
             rows = db.fetch_all(
-                "SELECT DISTINCT filename, title FROM roms WHERE system = ?",
-                (system,),
+                f"SELECT DISTINCT filename, title FROM roms WHERE system IN ({placeholders})",
+                db_systems,
             )
             # Case-insensitive stem / title sets (for "already matched" check).
             rom_stems_lower:  set[str] = {Path(str(r["filename"])).stem.lower() for r in rows}

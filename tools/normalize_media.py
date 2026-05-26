@@ -200,9 +200,15 @@ def run_normalize_media(
                 _print(console, f"Warning: system folder not found: {system_dir}", style="yellow")
                 continue
 
+            # Include co-resident systems (e.g. arcade when processing
+            # mame2003-plus) so their media is not incorrectly treated as
+            # unmatched when both share the same media folder.
+            from tools.clean_media import _co_resident_systems
+            db_systems = _co_resident_systems(system, nas_folder, mappings or {})
+            placeholders = ",".join("?" * len(db_systems))
             rows = db.fetch_all(
-                "SELECT DISTINCT filename, title FROM roms WHERE system = ?",
-                (system,),
+                f"SELECT DISTINCT filename, title FROM roms WHERE system IN ({placeholders})",
+                db_systems,
             )
             # case-insensitive stem → canonical title
             stem_to_title: dict[str, str] = {

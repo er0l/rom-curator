@@ -217,9 +217,15 @@ def run_clean_media(
             # ROM sets often disagree on capitalisation (e.g. "Aaahh!!!" vs "AAAHH!!!").
             # rom_stems  — full filename stems, e.g. "7th saga, the (usa)"
             # rom_titles — parsed titles,        e.g. "7th saga, the"
+            #
+            # For subpath systems (e.g. mame2003-plus) the media folder is shared
+            # with the parent system (arcade).  Include all co-resident systems in
+            # the lookup so their media files are not incorrectly flagged orphaned.
+            db_systems = _co_resident_systems(system, nas_folder, mappings or {})
+            placeholders = ",".join("?" * len(db_systems))
             rows = db.fetch_all(
-                "SELECT DISTINCT filename, title FROM roms WHERE system = ?",
-                (system,),
+                f"SELECT DISTINCT filename, title FROM roms WHERE system IN ({placeholders})",
+                db_systems,
             )
             rom_stems:  set[str] = {Path(str(r["filename"])).stem.lower() for r in rows}
             rom_titles: set[str] = {str(r["title"]).lower() for r in rows}
@@ -343,6 +349,36 @@ def run_clean_media(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _co_resident_systems(
+    system: str,
+    nas_folder: str,
+    mappings: dict[str, object],
+) -> list[str]:
+    """Return all system names that share the same media root folder as *system*.
+
+    For a subpath system like mame2003-plus (nas: arcade/mame2003-plus) the
+    media lives in arcade/.  Any other system whose NAS folder also resolves to
+    arcade/ (e.g. the 'arcade' system itself) is co-resident and its ROMs must
+    be included in media-matching lookups, otherwise their images/videos appear
+    orphaned when the tool is scoped to the subpath system only.
+    """
+    # Determine the media-root folder for this system.
+    media_parent = nas_folder.rsplit("/", 1)[0] if "/" in nas_folder else nas_folder
+
+    co: list[str] = []
+    for sys_key, sys_meta in mappings.items():
+        sys_nas = (
+            str(sys_meta.get("nas"))
+            if isinstance(sys_meta, dict) and sys_meta.get("nas")
+            else sys_key
+        )
+        sys_parent = sys_nas.rsplit("/", 1)[0] if "/" in sys_nas else sys_nas
+        if sys_parent == media_parent:
+            co.append(sys_key)
+
+    return co if co else [system]
+
 
 def _find_jpg_duplicates(folder_index: dict[str, str]) -> set[str]:
     """Return the set of lowercased stems that have both a PNG and a JPG/JPEG.
