@@ -42,6 +42,7 @@ class RsyncSummary:
     dest: str
     dry_run: bool
     delete: bool
+    systems: list[str] | None = None
     exit_code: int = 0
 
 
@@ -50,6 +51,7 @@ def run_rom_rsync(
     profile: str,
     dest: str,
     *,
+    systems: list[str] | None = None,
     delete: bool = False,
     execute: bool = False,
     extra_rsync_args: list[str] | None = None,
@@ -65,6 +67,10 @@ def run_rom_rsync(
     dest:
         rsync destination: a local path (``/run/media/…/roms``) or an SSH
         target (``user@host:/path``).
+    systems:
+        If given, only rsync these system sub-directories.  Each system is
+        transferred with a separate rsync invocation so that ``--delete``
+        applies per-system rather than across the whole dest root.
     delete:
         Pass ``--delete`` to rsync so the device mirrors the export exactly.
         Off by default — device may have extra files that should be kept.
@@ -78,82 +84,104 @@ def run_rom_rsync(
         raise ValueError("Config key 'paths' must be a mapping")
 
     exports_root = Path(str(paths.get("exports", "/mnt/storage/exports"))).expanduser()
-    source = exports_root / profile
+    export_root = exports_root / profile
 
-    if not source.is_dir():
+    if not export_root.is_dir():
         raise FileNotFoundError(
-            f"Export directory not found: {source}\n"
+            f"Export directory not found: {export_root}\n"
             f"Run 'build {profile} --execute' first to create it."
         )
+
+    # Resolve which system sub-directories to sync.
+    if systems:
+        sync_systems = systems
+        # Warn about systems not present in the export.
+        missing = [s for s in sync_systems if not (export_root / s).is_dir()]
+        if missing:
+            raise FileNotFoundError(
+                f"System(s) not found in export '{profile}': {', '.join(missing)}\n"
+                f"Available: {', '.join(sorted(d.name for d in export_root.iterdir() if d.is_dir()))}"
+            )
+    else:
+        sync_systems = None  # signal: sync the whole root
 
     console = Console() if Console else None
     dry_run = not execute
 
+    scope = ", ".join(sync_systems) if sync_systems else "all systems"
     _print(console, f"Profile:   [bold]{profile}[/bold]" if console else f"Profile:   {profile}")
-    _print(console, f"Source:    {source}/")
+    _print(console, f"Scope:     {scope}")
+    _print(console, f"Export:    {export_root}/")
     _print(console, f"Dest:      {dest}")
     _print(console, f"Delete:    {'yes' if delete else 'no'}")
     _print(console, f"Mode:      {'DRY RUN' if dry_run else 'EXECUTE'}")
     _print(console, "")
 
-    cmd: list[str] = [
+    base_cmd: list[str] = [
         "rsync",
-        "--archive",       # -a: recursive + preserve permissions/times/links
-        "--verbose",       # show transferred files
-        "--progress",      # per-file transfer progress
+        "--archive",        # -a: recursive + preserve permissions/times/links
+        "--verbose",        # show transferred files
+        "--progress",       # per-file transfer progress
         "--human-readable",
     ]
     if dry_run:
-        cmd.append("--dry-run")
+        base_cmd.append("--dry-run")
     if delete:
-        cmd.append("--delete")
+        base_cmd.append("--delete")
     if extra_rsync_args:
-        cmd.extend(extra_rsync_args)
+        base_cmd.extend(extra_rsync_args)
 
-    # Trailing slash on source syncs *contents*, not the directory itself.
-    cmd.append(f"{source}/")
-    cmd.append(dest)
+    worst_exit = 0
 
-    if console:
-        console.print(f"Command:   [dim]{' '.join(cmd)}[/dim]")
-        console.print("")
+    def _run_rsync(src: str, dst: str) -> int:
+        cmd = base_cmd + [src, dst]
+        if console:
+            console.print(f"[dim]rsync {src} → {dst}[/dim]")
+        try:
+            r = subprocess.run(cmd, check=False)
+            return r.returncode
+        except FileNotFoundError:
+            raise RuntimeError(
+                "rsync not found. Install it with: sudo apt install rsync  "
+                "(or brew install rsync on macOS)"
+            )
 
-    try:
-        result = subprocess.run(cmd, check=False)
-        exit_code = result.returncode
-    except FileNotFoundError:
-        raise RuntimeError(
-            "rsync not found. Install it with: sudo apt install rsync  "
-            "(or brew install rsync on macOS)"
-        )
+    if sync_systems:
+        # Per-system invocations: rsync exports/<profile>/<sys>/ → dest/<sys>/
+        dest_has_colon = ":" in dest and not dest.startswith("/")
+        for sys_name in sync_systems:
+            src = f"{export_root / sys_name}/"
+            dst = f"{dest.rstrip('/')}/{sys_name}" if not dest_has_colon else \
+                  f"{dest.rstrip('/')}/{sys_name}"
+            code = _run_rsync(src, dst)
+            if code > worst_exit:
+                worst_exit = code
+    else:
+        # Whole-root invocation: rsync exports/<profile>/ → dest/
+        src = f"{export_root}/"
+        code = _run_rsync(src, dest)
+        worst_exit = code
 
     summary = RsyncSummary(
         profile=profile,
-        source=source,
+        source=export_root,
         dest=dest,
         dry_run=dry_run,
         delete=delete,
-        exit_code=exit_code,
+        systems=sync_systems,
+        exit_code=worst_exit,
     )
 
-    if exit_code == 0:
+    if worst_exit == 0:
         status = "DRY RUN complete" if dry_run else "Sync complete"
         _print(console, f"\n{status}.", style="bold green")
         if dry_run:
-            _print(
-                console,
-                "Pass --execute to perform the actual transfer.",
-                style="dim",
-            )
+            _print(console, "Pass --execute to perform the actual transfer.", style="dim")
     else:
-        _print(
-            console,
-            f"\nrsync exited with code {exit_code}.",
-            style="bold red",
-        )
-        if exit_code == 23:
+        _print(console, f"\nrsync exited with code {worst_exit}.", style="bold red")
+        if worst_exit == 23:
             _print(console, "Hint: some files could not be transferred (permissions?).")
-        elif exit_code == 255:
+        elif worst_exit == 255:
             _print(console, "Hint: SSH connection failed — check host, user, and key.")
 
     return summary

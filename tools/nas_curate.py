@@ -103,6 +103,7 @@ def run_nas_curate(
     profile: str,
     source: str,
     *,
+    systems: list[str] | None = None,
     execute: bool = False,
 ) -> NasCurateSummary:
     """Find ROMs deleted from *source* device and offer to move them to the NAS recycle bin.
@@ -117,6 +118,9 @@ def run_nas_curate(
         Where the device's ROMs currently live.  Either a local path
         (``/run/media/erol/SDCARD/roms``) or an SSH target
         (``user@host:/recalbox/share/roms``).
+    systems:
+        If given, only compare and curate these system names.  Other systems
+        are ignored even if they appear in the export or on the device.
     execute:
         If False (default) no files are moved — just print the candidate list.
         If True, enter the interactive Y/N prompt.
@@ -142,21 +146,26 @@ def run_nas_curate(
     console = Console() if Console else None
     summary = NasCurateSummary(profile=profile, source=source, dry_run=not execute)
 
+    scope = ", ".join(systems) if systems else "all systems"
     _print(console, f"Profile:   [bold]{profile}[/bold]" if console else f"Profile:   {profile}")
+    _print(console, f"Scope:     {scope}")
     _print(console, f"Export:    {export_dir}")
     _print(console, f"Source:    {source}")
     _print(console, f"Mode:      {'EXECUTE (interactive)' if execute else 'DRY RUN (listing only)'}")
     _print(console, "")
 
-    # Step 1 — collect relative ROM paths from the export.
+    # Build the set of system names to consider (lower-cased for comparison).
+    systems_filter: set[str] | None = {s.lower() for s in systems} if systems else None
+
+    # Step 1 — collect relative ROM paths from the export, optionally filtered.
     _print(console, "Scanning export directory…", style="dim")
-    export_files: set[str] = _list_local_files(export_dir)
+    export_files: set[str] = _list_local_files(export_dir, systems_filter)
     _print(console, f"  Export:  {len(export_files)} ROM files")
 
-    # Step 2 — collect relative ROM paths from the device.
+    # Step 2 — collect relative ROM paths from the device, optionally filtered.
     _print(console, "Scanning device…", style="dim")
     try:
-        device_files: set[str] = _list_device_files(source)
+        device_files: set[str] = _list_device_files(source, systems_filter)
     except Exception as exc:
         raise RuntimeError(f"Could not list files on device '{source}': {exc}") from exc
     _print(console, f"  Device:  {len(device_files)} ROM files")
@@ -244,62 +253,93 @@ def run_nas_curate(
 # File listing helpers
 # ---------------------------------------------------------------------------
 
-def _list_local_files(root: Path) -> set[str]:
-    """Return relative ROM paths under *root*, e.g. {'arcade/1942.zip'}."""
+def _list_local_files(
+    root: Path,
+    systems_filter: set[str] | None = None,
+) -> set[str]:
+    """Return relative ROM paths under *root*, e.g. {'arcade/1942.zip'}.
+
+    *systems_filter* — if provided, only include paths whose first component
+    (the system directory name) is in the set (case-insensitive).
+    """
     result: set[str] = set()
     for dirpath, _dirs, files in os.walk(root):
+        rel_dir = Path(dirpath).relative_to(root)
+        # The first part of the relative path is the system folder.
+        top = rel_dir.parts[0] if rel_dir.parts else ""
+        if systems_filter and top.lower() not in systems_filter:
+            continue
         for fname in files:
             if Path(fname).suffix.lower() in _ROM_EXTENSIONS:
-                rel = str(Path(dirpath).relative_to(root) / fname)
+                rel = str(rel_dir / fname)
                 result.add(rel)
     return result
 
 
-def _list_device_files(source: str) -> set[str]:
+def _list_device_files(
+    source: str,
+    systems_filter: set[str] | None = None,
+) -> set[str]:
     """Return relative ROM paths on *source* (local or SSH).
 
     For SSH sources (``user@host:/path``) we run ``find`` over SSH.
     For local paths we walk the directory directly.
+    *systems_filter* is passed through to filter by system directory name.
     """
     if ":" in source and not source.startswith("/"):
-        return _list_ssh_files(source)
-    return _list_local_files(Path(source).expanduser())
+        return _list_ssh_files(source, systems_filter)
+    return _list_local_files(Path(source).expanduser(), systems_filter)
 
 
-def _list_ssh_files(ssh_source: str) -> set[str]:
+def _list_ssh_files(
+    ssh_source: str,
+    systems_filter: set[str] | None = None,
+) -> set[str]:
     """List files on a remote device via SSH find.
 
     *ssh_source* format: ``user@host:/remote/path``
+    *systems_filter* — when given, ``find`` is scoped to those sub-directories
+    only, which is faster than listing everything and filtering in Python.
     """
-    # Split on first colon that has a preceding host component.
     colon = ssh_source.index(":")
     user_host = ssh_source[:colon]
-    remote_path = ssh_source[colon + 1:]
+    remote_path = ssh_source[colon + 1:].rstrip("/")
 
     # Build extension pattern for find -name.
-    # We use multiple -o name conditions.
     find_name_parts: list[str] = []
     for ext in sorted(_ROM_EXTENSIONS):
         find_name_parts += ["-o", "-name", f"*{ext}"]
-    # Remove leading -o
-    find_name_parts = find_name_parts[2:]
+    find_name_parts = find_name_parts[2:]  # remove leading -o
 
-    cmd = ["ssh", user_host, "find", remote_path, "-type", "f",
-           "(", *find_name_parts, ")"]
+    if systems_filter:
+        # Run find inside each system sub-directory separately.
+        all_lines: list[str] = []
+        for sys_name in sorted(systems_filter):
+            sys_path = f"{remote_path}/{sys_name}"
+            cmd = ["ssh", user_host, "find", sys_path, "-type", "f",
+                   r"\(", *find_name_parts, r"\)"]
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if r.returncode not in (0, 1):
+                raise RuntimeError(
+                    f"SSH find failed for {sys_path} (exit {r.returncode}): {r.stderr.strip()}"
+                )
+            all_lines.extend(r.stdout.splitlines())
+    else:
+        cmd = ["ssh", user_host, "find", remote_path, "-type", "f",
+               r"\(", *find_name_parts, r"\)"]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if r.returncode not in (0, 1):
+            raise RuntimeError(
+                f"SSH find failed (exit {r.returncode}): {r.stderr.strip()}"
+            )
+        all_lines = r.stdout.splitlines()
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    if result.returncode not in (0, 1):  # find returns 1 on permission errors
-        raise RuntimeError(
-            f"SSH find failed (exit {result.returncode}): {result.stderr.strip()}"
-        )
-
+    prefix = remote_path + "/"
     rel_paths: set[str] = set()
-    prefix = remote_path.rstrip("/") + "/"
-    for line in result.stdout.splitlines():
+    for line in all_lines:
         line = line.strip()
         if not line:
             continue
-        # Make path relative to the remote roms root.
         if line.startswith(prefix):
             line = line[len(prefix):]
         rel_paths.add(line)

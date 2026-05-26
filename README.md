@@ -1060,6 +1060,9 @@ python3 romcurator.py rom-rsync r36s --dest /run/media/user/SDCARD/roms
 # Actually transfer
 python3 romcurator.py rom-rsync r36s --dest root@192.168.1.100:/recalbox/share/roms --execute
 
+# Transfer only specific systems
+python3 romcurator.py rom-rsync r36s --dest root@host:/path --systems snes,gba --execute
+
 # Transfer and remove files on the device not in the export (exact mirror)
 python3 romcurator.py rom-rsync r36s --dest root@host:/path --delete --execute
 ```
@@ -1086,8 +1089,12 @@ interactive prompt to move the corresponding NAS originals to the recycle bin.
 python3 romcurator.py nas-curate r36s --source root@192.168.1.100:/recalbox/share/roms
 python3 romcurator.py nas-curate r36s --source /run/media/user/SDCARD/roms
 
+# Curate only specific systems
+python3 romcurator.py nas-curate r36s --source root@host:/path --systems arcade,snes
+
 # Interactive curation
 python3 romcurator.py nas-curate r36s --source root@192.168.1.100:/path --execute
+python3 romcurator.py nas-curate r36s --source root@host:/path --systems snes --execute
 ```
 
 For each ROM found in the export but missing from the device, the tool shows:
