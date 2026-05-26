@@ -429,8 +429,15 @@ def generate_gamelist(
         if any(v for v in metadata.values()):
             stats["with_metadata"] += 1
 
-        # Display name: ROMM name > parsed title
-        display_name = str(romm_name) if romm_name else title
+        # Display name: ROMM name > parsed title.
+        # Guard against ROMM returning the raw filename as the name (e.g.
+        # '1942.zip' instead of a display title).  If the ROMM name matches
+        # the filename or the bare stem, it adds no value — use the inventory-
+        # parsed title instead.
+        if romm_name and str(romm_name) not in (filename, stem):
+            display_name = str(romm_name)
+        else:
+            display_name = title
 
         game_el = _build_game_element(path_value, display_name, media, metadata, preserved)
         root.append(game_el)

@@ -242,7 +242,13 @@ def _flatten_rom(
         "canonical_system": canonical_system,
         "fs_name": rom.get("fs_name"),
         "fs_stem": _stem(rom.get("fs_name")),
-        "name": rom.get("name"),
+        # Prefer an enriched display name from IGDB or the scraped metadatum
+        # over the raw ROMM name.  For many arcade ROMs ROMM stores the
+        # filename (e.g. '1942.zip') as the name; the IGDB/metadatum name
+        # ('1942') is more useful for display.
+        "name": (
+            _first(igdb.get("name"), md.get("name"), rom.get("name"))
+        ),
         "total_rating": igdb.get("total_rating"),
         "aggregated_rating": igdb.get("aggregated_rating"),
         "igdb_id": rom.get("igdb_id"),
