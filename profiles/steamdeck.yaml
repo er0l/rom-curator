@@ -2,6 +2,12 @@ name: steamdeck
 target: emudeck
 description: Steam Deck LCD / EmuDeck — Zen 2 4c/8t, 16 GB, 7" screen (1280x800).
 
+rsync:
+  # SSH (Deck is on WiFi but usually reliable; enable SSH in Desktop Mode first)
+  # dest: deck@192.168.1.XXX:/home/deck/Emulation/roms
+  # SD card inserted into laptop (Deck uses ext4 — needs Linux to mount read-write)
+  # dest: /run/media/erol/SDCARD/Emulation/roms
+
 screen:
   width: 1280
   height: 800

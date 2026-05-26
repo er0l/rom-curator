@@ -1054,22 +1054,36 @@ or a networked device reachable via SSH.
 
 ```bash
 # Dry-run (shows what would be transferred, no files sent)
-python3 romcurator.py rom-rsync r36s --dest root@192.168.1.100:/recalbox/share/roms
-python3 romcurator.py rom-rsync r36s --dest /run/media/user/SDCARD/roms
+python3 romcurator.py rom-rsync r36s                                                    # uses rsync.dest from profile
+python3 romcurator.py rom-rsync r36s --dest root@192.168.1.100:/recalbox/share/roms    # SSH override
+python3 romcurator.py rom-rsync r36s --dest /run/media/user/SDCARD/roms                # SD card override
 
 # Actually transfer
-python3 romcurator.py rom-rsync r36s --dest root@192.168.1.100:/recalbox/share/roms --execute
+python3 romcurator.py rom-rsync r36s --execute
 
 # Transfer only specific systems
-python3 romcurator.py rom-rsync r36s --dest root@host:/path --systems snes,gba --execute
+python3 romcurator.py rom-rsync r36s --systems snes,gba --execute
 
 # Transfer and remove files on the device not in the export (exact mirror)
-python3 romcurator.py rom-rsync r36s --dest root@host:/path --delete --execute
+python3 romcurator.py rom-rsync r36s --delete --execute
 ```
 
 The source is always the pre-built export for the named profile
 (`paths.exports/<profile>/`). Run `build <profile> --execute` first if the
 export does not exist.
+
+The destination defaults to `rsync.dest` in the profile yaml — set it once,
+then omit `--dest` on every command.  `--dest` always overrides the profile
+value when you need a different target (e.g. SD card vs WiFi):
+
+```yaml
+# profiles/r36s.yaml
+rsync:
+  # WiFi / SSH
+  # dest: root@192.168.1.100:/recalbox/share/roms
+  # SD card inserted into laptop (faster than WiFi on weak handhelds)
+  dest: /run/media/erol/SDCARD/roms
+```
 
 SSH uses the standard OpenSSH client — `~/.ssh/config` entries, key agents,
 and `IdentityFile` directives all work without any extra configuration here.
@@ -1086,16 +1100,20 @@ interactive prompt to move the corresponding NAS originals to the recycle bin.
 
 ```bash
 # Dry-run — list candidates without prompting
-python3 romcurator.py nas-curate r36s --source root@192.168.1.100:/recalbox/share/roms
-python3 romcurator.py nas-curate r36s --source /run/media/user/SDCARD/roms
+python3 romcurator.py nas-curate r36s                                                    # uses rsync.dest from profile
+python3 romcurator.py nas-curate r36s --source root@192.168.1.100:/recalbox/share/roms  # SSH override
+python3 romcurator.py nas-curate r36s --source /run/media/user/SDCARD/roms              # SD card override
 
 # Curate only specific systems
-python3 romcurator.py nas-curate r36s --source root@host:/path --systems arcade,snes
+python3 romcurator.py nas-curate r36s --systems arcade,snes
 
 # Interactive curation
-python3 romcurator.py nas-curate r36s --source root@192.168.1.100:/path --execute
-python3 romcurator.py nas-curate r36s --source root@host:/path --systems snes --execute
+python3 romcurator.py nas-curate r36s --execute
+python3 romcurator.py nas-curate r36s --systems snes --execute
 ```
+
+`--source` defaults to `rsync.dest` in the profile yaml — the same path used
+by `rom-rsync`, since both tools point at the device's ROM folder.
 
 For each ROM found in the export but missing from the device, the tool shows:
 

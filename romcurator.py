@@ -155,20 +155,34 @@ def main(argv: list[str] | None = None) -> int:
             run_gen_m3u(config, mappings=mappings, systems=_parse_systems(getattr(args, "systems", None)), execute=args.execute)
         elif args.command == "rom-rsync":
             from tools.rom_rsync import run_rom_rsync
+            profiles = _load_configured_profiles(config)
+            profile_data = profiles.get(args.profile, {})
+            dest = args.dest or str((profile_data.get("rsync") or {}).get("dest") or "")
+            if not dest:
+                parser.error(
+                    f"No destination specified. Pass --dest or set rsync.dest in profiles/{args.profile}.yaml"
+                )
             run_rom_rsync(
                 config,
                 args.profile,
-                args.dest,
+                dest,
                 systems=_parse_systems(args.systems),
                 delete=args.delete,
                 execute=args.execute,
             )
         elif args.command == "nas-curate":
             from tools.nas_curate import run_nas_curate
+            profiles = _load_configured_profiles(config)
+            profile_data = profiles.get(args.profile, {})
+            source = args.source or str((profile_data.get("rsync") or {}).get("dest") or "")
+            if not source:
+                parser.error(
+                    f"No source specified. Pass --source or set rsync.dest in profiles/{args.profile}.yaml"
+                )
             run_nas_curate(
                 config,
                 args.profile,
-                args.source,
+                source,
                 systems=_parse_systems(args.systems),
                 execute=args.execute,
             )
@@ -321,13 +335,13 @@ def build_parser() -> argparse.ArgumentParser:
     gen_m3u_parser.add_argument("--execute", action="store_true", help="Actually write .m3u files  (default: dry run)")
     rom_rsync_parser = subparsers.add_parser("rom-rsync", help="Rsync a profile's hardlink export to a device (local mount or SSH)")
     rom_rsync_parser.add_argument("profile", help="Profile name matching a built export under paths.exports (e.g. r36s)")
-    rom_rsync_parser.add_argument("--dest", required=True, metavar="DEST", help="Destination: local path (e.g. /run/media/user/SDCARD/roms) or SSH target (e.g. root@192.168.1.100:/recalbox/share/roms)")
+    rom_rsync_parser.add_argument("--dest", metavar="DEST", help="Destination: local path (e.g. /run/media/user/SDCARD/roms) or SSH target (e.g. root@192.168.1.100:/recalbox/share/roms)  (default: rsync.dest from profile yaml)")
     rom_rsync_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only sync these system folders, comma-separated  (default: all)")
     rom_rsync_parser.add_argument("--delete", action="store_true", help="Remove files on the device that are no longer in the export (mirrors export exactly)  (default: off)")
     rom_rsync_parser.add_argument("--execute", action="store_true", help="Actually transfer files  (default: dry run)")
     nas_curate_parser = subparsers.add_parser("nas-curate", help="Interactively move to recycle bin NAS ROMs that were deleted from a synced device after playtesting")
     nas_curate_parser.add_argument("profile", help="Profile name whose export was synced to the device (e.g. r36s)")
-    nas_curate_parser.add_argument("--source", required=True, metavar="SOURCE", help="Where the device's ROMs currently live: local path or SSH target (e.g. root@192.168.1.100:/recalbox/share/roms)")
+    nas_curate_parser.add_argument("--source", metavar="SOURCE", help="Where the device's ROMs currently live: local path or SSH target (e.g. root@192.168.1.100:/recalbox/share/roms)  (default: rsync.dest from profile yaml)")
     nas_curate_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only curate these systems, comma-separated  (default: all)")
     nas_curate_parser.add_argument("--execute", action="store_true", help="Enter the interactive Y/N prompt and move confirmed files to recycle bin  (default: dry run, listing only)")
     subparsers.add_parser("scan-systems", help="Scan ROM root for new/removed/unknown system folders vs mappings")

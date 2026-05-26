@@ -2,6 +2,10 @@ name: r39max
 target: r36s
 description: Curated low-power handheld profile for R39 Max (720x720, 4.0").
 
+rsync:
+  # dest: root@192.168.1.XXX:/recalbox/share/roms
+  # dest: /run/media/erol/SDCARD/roms
+
 screen:
   width: 720
   height: 720

@@ -2,6 +2,14 @@ name: r36s
 target: r36s
 description: Curated low-power handheld profile for R36S (640x480, 3.5").
 
+# Sync destination used by rom-rsync and nas-curate when --dest/--source is
+# not passed on the command line.  Uncomment whichever method you prefer.
+rsync:
+  # WiFi / SSH (update IP or add an entry to ~/.ssh/config)
+  # dest: root@192.168.1.XXX:/recalbox/share/roms
+  # SD card inserted into laptop (faster than WiFi on weak handhelds)
+  # dest: /run/media/erol/SDCARD/roms
+
 screen:
   width: 640
   height: 480
