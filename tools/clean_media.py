@@ -141,14 +141,16 @@ def run_clean_media(
                 continue
 
             # Build lookup sets from the DB for this system.
-            # rom_stems  — full filename stems, e.g. "7th Saga, The (USA)"
-            # rom_titles — parsed titles,        e.g. "7th Saga, The"
+            # All sets are lowercased for case-insensitive matching — scrapers and
+            # ROM sets often disagree on capitalisation (e.g. "Aaahh!!!" vs "AAAHH!!!").
+            # rom_stems  — full filename stems, e.g. "7th saga, the (usa)"
+            # rom_titles — parsed titles,        e.g. "7th saga, the"
             rows = db.fetch_all(
                 "SELECT DISTINCT filename, title FROM roms WHERE system = ?",
                 (system,),
             )
-            rom_stems:  set[str] = {Path(str(r["filename"])).stem for r in rows}
-            rom_titles: set[str] = {str(r["title"]) for r in rows}
+            rom_stems:  set[str] = {Path(str(r["filename"])).stem.lower() for r in rows}
+            rom_titles: set[str] = {str(r["title"]).lower() for r in rows}
 
             for folder_name in folders_to_check:
                 media_dir = system_dir / folder_name
@@ -166,11 +168,13 @@ def run_clean_media(
                     stem = media_file.stem  # filename without final extension
                     base = _strip_scraper_suffix(stem)
 
-                    # A file is NOT orphaned if:
+                    # A file is NOT orphaned if (all comparisons case-insensitive):
                     #   - its full stem matches a ROM filename stem  (boxart-style)
                     #   - its suffix-stripped base matches a ROM stem (edge cases)
                     #   - its suffix-stripped base matches a ROM title (scraper-style)
-                    if stem in rom_stems or base in rom_stems or base in rom_titles:
+                    stem_l = stem.lower()
+                    base_l = base.lower()
+                    if stem_l in rom_stems or base_l in rom_stems or base_l in rom_titles:
                         continue
 
                     rel = str(media_file.relative_to(roms_root))

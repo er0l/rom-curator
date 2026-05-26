@@ -108,6 +108,10 @@ def main(argv: list[str] | None = None) -> int:
             regions = args.preferred_regions or None
             mappings = _load_configured_mappings(config)
             run_dedup_roms(config, mappings=mappings, system=args.system, preferred_regions=regions, execute=args.execute)
+        elif args.command == "rename-media":
+            from tools.rename_media import run_rename_media
+            media_folders = _parse_systems(args.media_folders)
+            run_rename_media(config, systems=_parse_systems(args.systems), media_folders=media_folders, execute=args.execute)
         elif args.command == "clean-media":
             from tools.clean_media import run_clean_media
             media_folders = _parse_systems(args.media_folders)  # reuse comma-split helper
@@ -253,6 +257,10 @@ def build_parser() -> argparse.ArgumentParser:
     fetch_media_parser = subparsers.add_parser("fetch-media", help="Download missing boxart/screenshot images from ROMM to NAS system folders (requires romm-sync)")
     fetch_media_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only process these systems, comma-separated  (default: all)")
     fetch_media_parser.add_argument("--execute", action="store_true", help="Actually download files  (default: dry run)")
+    rename_media_parser = subparsers.add_parser("rename-media", help="Rename media files that have old ROM-set tags (e.g. '(E) [!]') to match current ROM naming")
+    rename_media_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only process these systems, comma-separated  (default: all)")
+    rename_media_parser.add_argument("--media-folders", metavar="FOLDER,...", help="Media subfolder names to check, comma-separated  (default: images,videos,snap,boxart,wheel,...)")
+    rename_media_parser.add_argument("--execute", action="store_true", help="Actually rename files  (default: dry run)")
     clean_media_parser = subparsers.add_parser("clean-media", help="Remove orphaned media files (images, videos, boxart, etc.) from the ROM archive")
     clean_media_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only check these systems, comma-separated  (default: all)")
     clean_media_parser.add_argument("--media-folders", metavar="FOLDER,...", help="Media subfolder names to check, comma-separated  (default: images,videos,snap,boxart,wheel,...)")

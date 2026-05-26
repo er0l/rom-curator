@@ -36,6 +36,48 @@ from core.database import InventoryDatabase
 
 
 # ---------------------------------------------------------------------------
+# Case-insensitive media index
+# ---------------------------------------------------------------------------
+
+class _MediaIndex:
+    """Lazy, case-insensitive filename index for a system's media subfolders.
+
+    On the first lookup in a given subfolder we scan the directory once and
+    build a ``{lower_name: actual_Path}`` map.  Subsequent lookups are O(1).
+    This also avoids one ``path.exists()`` call per (ROM × media field × ext)
+    combination, which matters on network-attached storage.
+    """
+
+    def __init__(self, system_dir: Path) -> None:
+        self._system_dir = system_dir
+        self._cache: dict[str, dict[str, Path]] = {}  # subfolder → {lower_name: path}
+
+    def _index(self, subfolder: str) -> dict[str, Path]:
+        if subfolder not in self._cache:
+            d = self._system_dir / subfolder
+            if d.is_dir():
+                self._cache[subfolder] = {f.name.lower(): f for f in d.iterdir() if f.is_file()}
+            else:
+                self._cache[subfolder] = {}
+        return self._cache[subfolder]
+
+    def find(self, subfolder: str, base: str, exts: tuple[str, ...]) -> tuple[str, str] | None:
+        """Return ``(subfolder, actual_filename)`` or ``None``.
+
+        Tries each extension in *exts* against the case-insensitive index.
+        Returns the *actual* filename on disk (preserving its original casing)
+        so callers can write the correct path into gamelist.xml.
+        """
+        idx = self._index(subfolder)
+        for ext in exts:
+            key = (base + ext).lower()
+            actual = idx.get(key)
+            if actual is not None:
+                return subfolder, actual.name
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Media layout
 # ---------------------------------------------------------------------------
 
@@ -86,17 +128,22 @@ _PRESERVE_FIELDS = frozenset({
 # Media resolution
 # ---------------------------------------------------------------------------
 
-def _find_media(system_dir: Path, stem: str, title: str, field: str) -> str | None:
-    """Return a relative path string (from system_dir) for *field*, or None."""
+def _find_media(index: "_MediaIndex", stem: str, title: str, field: str) -> str | None:
+    """Return a relative path string (from system_dir) for *field*, or None.
+
+    Uses a case-insensitive index so media files scraped with different
+    capitalisation (e.g. "Aaahh!!!" vs "AAAHH!!!") are still matched.
+    The returned path uses the *actual* on-disk filename.
+    """
     for fld, candidates in _MEDIA_FIELDS:
         if fld != field:
             continue
         for subfolder, template, exts in candidates:
             base = template.replace("{title}", title).replace("{stem}", stem)
-            for ext in exts:
-                path = system_dir / subfolder / (base + ext)
-                if path.exists():
-                    return f"./{subfolder}/{base}{ext}"
+            hit = index.find(subfolder, base, exts)
+            if hit is not None:
+                sub, actual_name = hit
+                return f"./{sub}/{actual_name}"
     return None
 
 
@@ -273,6 +320,11 @@ def generate_gamelist(
     _media_dir    = media_dir    or system_dir
     _gamelist_dir = gamelist_dir or system_dir
 
+    # Build a case-insensitive media index once per system.  This avoids
+    # one path.exists() call per (ROM × field × extension) combination and
+    # handles scrapers that use different capitalisation from the ROM filenames.
+    media_index = _MediaIndex(_media_dir)
+
     gamelist_path = _gamelist_dir / "gamelist.xml"
     existing = _parse_existing(gamelist_path)
 
@@ -332,7 +384,7 @@ def generate_gamelist(
         # Resolve media from the media root (parent folder for subpath systems).
         media: dict[str, str | None] = {}
         for field, _ in _MEDIA_FIELDS:
-            media[field] = _find_media(_media_dir, stem, title, field)
+            media[field] = _find_media(media_index, stem, title, field)
         if media.get("image"):
             stats["with_image"] += 1
         if media.get("video"):
