@@ -471,7 +471,7 @@ Metadata priority per field:
 
 | Field | Source priority |
 |-------|----------------|
-| `<name>` | ROMM display name → parsed filename title |
+| `<name>` | ROMM display name (skipped if ROMM returns the raw filename) → parsed filename title |
 | `<desc>` | ROMM IGDB summary → preserved from existing gamelist |
 | `<rating>` | ROMM IGDB total_rating (converted to 0.00–1.00) |
 | `<releasedate>` | ROMM year / MAME year |
@@ -900,6 +900,73 @@ Files that are never considered duplicates:
 
 Run `inventory` to rebuild the database after execution.
 
+#### rename-media
+
+Rename media files that carry old No-Intro / GoodTools region tags in their
+name so they match the current ROM naming convention.
+
+```bash
+python3 romcurator.py rename-media                            # dry-run all systems
+python3 romcurator.py rename-media --systems snes             # dry-run one system
+python3 romcurator.py rename-media --systems snes --execute   # apply renames
+```
+
+The tool strips trailing `(…)` and `[…]` groups from the file stem while
+preserving any scraper suffix:
+
+```
+Aladdin (E) [!]-image.jpg  →  Aladdin-image.jpg
+7th Saga, The (USA).png    →  7th Saga, The.png
+```
+
+Renames are skipped if the destination already exists.  Arcade systems use
+short MAME names with no region tags, so the tool correctly proposes 0
+renames there.
+
+Subpath systems (e.g. `--systems mame2003-plus`) resolve to the parent media
+folder (`arcade/`) automatically.
+
+#### normalize-media
+
+Consolidate scattered media subfolders (`wheel/`, `boxart/`, `snap/`, etc.)
+into the two canonical Batocera folders (`images/` and `videos/`) using the
+scraper-suffix naming convention:
+
+```bash
+python3 romcurator.py normalize-media                         # dry-run all systems
+python3 romcurator.py normalize-media --systems snes          # dry-run one system
+python3 romcurator.py normalize-media --execute               # apply moves
+
+# Also rename plain-stem files already in images/videos to add the suffix
+python3 romcurator.py normalize-media --rename-inline --execute
+
+# Also move superseded source files where the destination already exists
+python3 romcurator.py normalize-media --clean-superseded --execute
+```
+
+Source → destination mapping:
+
+| Source folder | Destination | Suffix added |
+|---|---|---|
+| `wheel/` | `images/` | `-marquee` |
+| `boxart/` | `images/` | `-image` |
+| `snap/` | `videos/` | `-video` |
+| `cartart/` | `images/` | `-image` |
+| `marquee/` | `images/` | `-marquee` |
+| `logos/` | `images/` | `-marquee` |
+| `fanarts/` | `images/` | `-fanart` |
+| `screenshots/` | `images/` | `-image` |
+| `mixart/` | `images/` | `-image` |
+
+`--rename-inline` additionally renames plain-stem files already in `images/`
+and `videos/` (e.g. `images/1942.png` → `images/1942-image.png`).
+
+`--clean-superseded` moves source files to the recycle bin when a
+suffix-style file for the same title already exists at the destination.
+
+Subpath systems (e.g. `--systems mame2003-plus`) resolve to the parent media
+folder (`arcade/`) automatically.
+
 #### clean-media
 
 Remove orphaned media files — images, videos, boxart, wheel art, and other
@@ -910,6 +977,9 @@ python3 romcurator.py clean-media                            # dry-run all syste
 python3 romcurator.py clean-media --systems snes             # dry-run one system
 python3 romcurator.py clean-media --systems snes,nes --execute
 python3 romcurator.py clean-media --media-folders boxart,wheel --execute
+
+# Also remove plain-stem files shadowed by suffix-style versions
+python3 romcurator.py clean-media --superseded --execute
 ```
 
 Scanned subfolders (default, all configurable via `--media-folders`):
@@ -923,7 +993,15 @@ Two naming conventions are matched automatically:
 | Full ROM stem | `7th Saga, The (USA).png` | ROM filename stem |
 | Scraper suffix | `7th Saga, The-image.png` | Parsed ROM title after stripping `-image`/`-thumb`/`-marquee`/`-video`/… |
 
+`--superseded` additionally flags plain-stem files in `images/` and `videos/`
+that are shadowed by a suffix-style version for the same title (e.g.
+`drakton.png` when `drakton-image.png` exists).  These files match a ROM so
+they are not orphaned, but they are never picked up by gen-gamelist.
+
 System files (`Thumbs.db`, `.DS_Store`, `gamelist.xml`, etc.) are always skipped.
+
+Subpath systems (e.g. `--systems mame2003-plus`) resolve to the parent media
+folder (`arcade/`) automatically.
 
 Run `inventory --systems <system>` first to ensure the database is up to date
 before executing, so recently added ROMs are not incorrectly flagged.
