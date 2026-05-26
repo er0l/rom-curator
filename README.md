@@ -1036,7 +1036,7 @@ Disc naming patterns recognised by the parser:
 
 #### Recycle bin
 
-All four archive maintenance tools move files to the recycle bin under their
+All archive maintenance tools move files to the recycle bin under their
 original relative path:
 
 ```
@@ -1044,6 +1044,74 @@ original relative path:
 ```
 
 The recycle bin path is configured under `paths.recycle_bin` in `config.yaml` (default: `/mnt/storage/recycle_bin`).
+
+### Device Sync Tools
+
+#### rom-rsync
+
+Rsync a profile's hardlink export to a target device — a local SD card mount
+or a networked device reachable via SSH.
+
+```bash
+# Dry-run (shows what would be transferred, no files sent)
+python3 romcurator.py rom-rsync r36s --dest root@192.168.1.100:/recalbox/share/roms
+python3 romcurator.py rom-rsync r36s --dest /run/media/user/SDCARD/roms
+
+# Actually transfer
+python3 romcurator.py rom-rsync r36s --dest root@192.168.1.100:/recalbox/share/roms --execute
+
+# Transfer and remove files on the device not in the export (exact mirror)
+python3 romcurator.py rom-rsync r36s --dest root@host:/path --delete --execute
+```
+
+The source is always the pre-built export for the named profile
+(`paths.exports/<profile>/`). Run `build <profile> --execute` first if the
+export does not exist.
+
+SSH uses the standard OpenSSH client — `~/.ssh/config` entries, key agents,
+and `IdentityFile` directives all work without any extra configuration here.
+
+`--delete` is **opt-in**: without it, extra files already on the device are
+left untouched. Enable it when you want the device to mirror the export exactly.
+
+#### nas-curate
+
+After syncing ROMs to a device and playing them, you may delete games you
+don't enjoy.  `nas-curate` detects those deletions by comparing the device's
+current ROM set against the NAS export that was synced to it, then offers an
+interactive prompt to move the corresponding NAS originals to the recycle bin.
+
+```bash
+# Dry-run — list candidates without prompting
+python3 romcurator.py nas-curate r36s --source root@192.168.1.100:/recalbox/share/roms
+python3 romcurator.py nas-curate r36s --source /run/media/user/SDCARD/roms
+
+# Interactive curation
+python3 romcurator.py nas-curate r36s --source root@192.168.1.100:/path --execute
+```
+
+For each ROM found in the export but missing from the device, the tool shows:
+
+```
+[1/42]  [arcade]  1942.zip
+  "1942"  (1984 • Shooter • Capcom)
+  Move to NAS recycle bin? [y]es / [n]o / [a]ll yes / [q]uit:
+```
+
+| Key | Action |
+|-----|--------|
+| `y` | Move this ROM to the NAS recycle bin |
+| `n` | Keep this ROM on the NAS |
+| `a` | Move this and all remaining candidates |
+| `q` | Stop — keep all remaining candidates |
+
+The tool **never touches the device** — it only moves files on the NAS.
+Files are moved to the recycle bin (not permanently deleted) so you can
+recover mistakes.
+
+The export directory must exist (`build <profile> --execute` first). The
+device listing uses relative paths (`<system>/<filename>`) so local and SSH
+sources are compared correctly regardless of their root location.
 
 ### System Discovery
 
