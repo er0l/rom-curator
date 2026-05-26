@@ -29,12 +29,19 @@ This command converts the plain-stem subfolders into the Batocera convention:
      with --clean-superseded).
   4. Otherwise the file is moved and renamed (--execute to apply).
 
+With --rename-inline, plain-stem files already sitting inside images/ and
+videos/ are also renamed in-place to add the suffix:
+    images/1942.png   →  images/1942-image.png   (if -image doesn't exist yet)
+    videos/1942.mp4   →  videos/1942-video.mp4   (if -video doesn't exist yet)
+Files whose suffix destination already exists are left for clean-media --superseded.
+
 Recommended workflow
 --------------------
-  python3 romcurator.py rename-media        # fix old-tag names first
-  python3 romcurator.py normalize-media     # preview consolidation
-  python3 romcurator.py normalize-media --execute [--clean-superseded]
-  python3 romcurator.py clean-media         # remove remaining orphans
+  python3 romcurator.py rename-media                          # fix old-tag names
+  python3 romcurator.py normalize-media --rename-inline       # preview all changes
+  python3 romcurator.py normalize-media --rename-inline --execute [--clean-superseded]
+  python3 romcurator.py clean-media --superseded              # remove redundant files
+  python3 romcurator.py gen-gamelist --execute                # regenerate gamelist.xml
 """
 
 from __future__ import annotations
@@ -80,6 +87,14 @@ FOLDER_MAP: dict[str, tuple[str, str]] = {
     "backcovers":  ("images", "-backcover"),
 }
 
+# Plain-stem files already in images/ or videos/ that need an in-place rename.
+# images/{stem}.ext  →  images/{title}-image.ext
+# videos/{stem}.ext  →  videos/{title}-video.ext
+INLINE_MAP: dict[str, str] = {
+    "images": "-image",
+    "videos": "-video",
+}
+
 # ------------------------------------------------------------------
 # Data types
 # ------------------------------------------------------------------
@@ -105,9 +120,11 @@ class NormalizeMediaSummary:
     total_files: int = 0
     already_in_place: int = 0   # already in images/ or videos/ with suffix style
     proposals: int = 0
+    inline_proposals: int = 0   # plain-stem in images/videos renamed in-place
     superseded: int = 0         # dest already exists — file is redundant
     no_match: int = 0           # no ROM found in DB — left for clean-media
     moved: int = 0
+    renamed_inline: int = 0
     cleaned_superseded: int = 0
     errors: int = 0
     dry_run: bool = True
@@ -122,6 +139,7 @@ def run_normalize_media(
     *,
     systems: list[str] | None = None,
     source_folders: list[str] | None = None,
+    rename_inline: bool = False,
     clean_superseded: bool = False,
     execute: bool = False,
 ) -> NormalizeMediaSummary:
@@ -230,15 +248,76 @@ def run_normalize_media(
                             src=src_file, dst=dst_file, rel_src=rel_src, rel_dst=rel_dst,
                         ))
 
-    _print_header(summary, folders_to_process, systems, clean_superseded, console)
+            # ------------------------------------------------------------------
+            # Inline rename: plain-stem files already in images/ and videos/.
+            # images/1942.png  →  images/1942-image.png  (if dest doesn't exist)
+            # videos/1942.mp4  →  videos/1942-video.mp4  (if dest doesn't exist)
+            # ------------------------------------------------------------------
+            if rename_inline:
+                from tools.clean_media import _strip_scraper_suffix
+                for folder_name, inline_suffix in INLINE_MAP.items():
+                    folder_dir = system_dir / folder_name
+                    if not folder_dir.is_dir():
+                        continue
+
+                    for src_file in sorted(folder_dir.iterdir()):
+                        if not src_file.is_file():
+                            continue
+                        if (src_file.name in _IGNORED_FILENAMES
+                                or src_file.name.startswith(_IGNORED_PREFIXES)):
+                            continue
+
+                        stem = src_file.stem
+                        ext  = src_file.suffix
+
+                        # Only rename plain-stem files (skip files that already
+                        # have a scraper suffix like -image, -video, -marquee).
+                        if _strip_scraper_suffix(stem) != stem:
+                            continue
+
+                        summary.total_files += 1
+
+                        title = _resolve_title(stem, stem_to_title, title_lower_to_title)
+                        if title is None:
+                            summary.no_match += 1
+                            continue
+
+                        new_name = title + inline_suffix + ext
+                        dst_file = folder_dir / new_name  # same folder, new name
+
+                        if dst_file == src_file:
+                            summary.already_in_place += 1
+                            continue
+
+                        rel_src = str(src_file.relative_to(roms_root))
+                        rel_dst = str(dst_file.relative_to(roms_root))
+
+                        if dst_file.exists():
+                            # Suffix version already exists — superseded.
+                            summary.superseded += 1
+                            all_superseded.append(SupersededFile(
+                                src=src_file, dst=dst_file,
+                                rel_src=rel_src, rel_dst=rel_dst,
+                            ))
+                        else:
+                            summary.inline_proposals += 1
+                            all_proposals.append(MoveProposal(
+                                src=src_file, dst=dst_file,
+                                rel_src=rel_src, rel_dst=rel_dst,
+                            ))
+
+    _print_header(summary, folders_to_process, systems, rename_inline, clean_superseded, console)
     _print_proposals(all_proposals, console)
     if all_superseded:
         _print_superseded(all_superseded, clean_superseded, console)
 
     if not execute:
+        parts = [f"{summary.proposals} cross-folder move(s)"]
+        if summary.inline_proposals:
+            parts.append(f"{summary.inline_proposals} inline rename(s)")
         _print(
             console,
-            f"\nDRY RUN — {summary.proposals} move(s) proposed, "
+            f"\nDRY RUN — {', '.join(parts)} proposed, "
             f"{summary.superseded} superseded (dest exists), "
             f"{summary.no_match} unmatched (no ROM in DB). "
             "Pass --execute to apply.",
@@ -246,18 +325,22 @@ def run_normalize_media(
         )
         return summary
 
-    # Ensure destination dirs exist.
-    executed_systems: set[str] = set()
+    # Ensure destination dirs exist (only needed for cross-folder moves).
+    executed_dirs: set[str] = set()
     for p in all_proposals:
-        executed_systems.add(str(p.dst.parent))
-    for d in executed_systems:
+        executed_dirs.add(str(p.dst.parent))
+    for d in executed_dirs:
         Path(d).mkdir(parents=True, exist_ok=True)
 
     for p in all_proposals:
         try:
             p.src.rename(p.dst)
-            summary.moved += 1
-            _print(console, f"  MOVED  {p.rel_src}  →  {p.rel_dst}", style="green")
+            # Track renames vs moves separately for the summary line.
+            if p.src.parent == p.dst.parent:
+                summary.renamed_inline += 1
+            else:
+                summary.moved += 1
+            _print(console, f"  {'RENAMED' if p.src.parent == p.dst.parent else 'MOVED'}  {p.rel_src}  →  {p.dst.name}", style="green")
         except Exception as exc:
             summary.errors += 1
             _print(console, f"  ERROR  {p.rel_src}: {exc}", style="red")
@@ -278,7 +361,7 @@ def run_normalize_media(
     style = "red" if summary.errors else "green"
     _print(
         console,
-        f"\nDone — moved: {summary.moved}  "
+        f"\nDone — moved: {summary.moved}  renamed: {summary.renamed_inline}  "
         f"recycled superseded: {summary.cleaned_superseded}  "
         f"errors: {summary.errors}",
         style=style,
@@ -328,6 +411,7 @@ def _print_header(
     summary: NormalizeMediaSummary,
     folders: dict[str, tuple[str, str]],
     systems: list[str] | None,
+    rename_inline: bool,
     clean_superseded: bool,
     console,
 ) -> None:
@@ -336,27 +420,32 @@ def _print_header(
     folder_list = ", ".join(
         f"{src}/ → {dst}/{suf}" for src, (dst, suf) in folders.items()
     )
+    superseded_note = "  (will be recycled)" if clean_superseded else "  (left in place — use clean-media --superseded)"
     if console and Table:
         table = Table(show_header=False, box=None)
         table.add_column(style="bold")
         table.add_column()
-        table.add_row("Scope:",           scope)
-        table.add_row("Conversions:",     folder_list)
-        table.add_row("Total files:",     str(summary.total_files))
-        table.add_row("Move proposals:",  str(summary.proposals))
-        table.add_row("Superseded:",      str(summary.superseded)
-                      + ("  (will be recycled)" if clean_superseded else "  (kept in place)"))
-        table.add_row("No ROM match:",    str(summary.no_match) + "  (leave for clean-media)")
-        table.add_row("Mode:",            mode)
+        table.add_row("Scope:",              scope)
+        table.add_row("Conversions:",        folder_list)
+        if rename_inline:
+            table.add_row("Inline rename:",  "images/{stem} → images/{title}-image  |  videos/{stem} → videos/{title}-video")
+        table.add_row("Total files:",        str(summary.total_files))
+        table.add_row("Move proposals:",     str(summary.proposals))
+        if rename_inline:
+            table.add_row("Rename proposals:", str(summary.inline_proposals))
+        table.add_row("Superseded:",         str(summary.superseded) + superseded_note)
+        table.add_row("No ROM match:",       str(summary.no_match) + "  (leave for clean-media)")
+        table.add_row("Mode:",               mode)
         console.print(table)
     else:
-        print(f"Scope:          {scope}")
-        print(f"Total files:    {summary.total_files}")
-        print(f"Move proposals: {summary.proposals}")
-        print(f"Superseded:     {summary.superseded}"
-              + ("  (will be recycled)" if clean_superseded else "  (kept in place)"))
-        print(f"No ROM match:   {summary.no_match}  (leave for clean-media)")
-        print(f"Mode:           {mode}")
+        print(f"Scope:            {scope}")
+        print(f"Total files:      {summary.total_files}")
+        print(f"Move proposals:   {summary.proposals}")
+        if rename_inline:
+            print(f"Rename proposals: {summary.inline_proposals}")
+        print(f"Superseded:       {summary.superseded}" + superseded_note)
+        print(f"No ROM match:     {summary.no_match}  (leave for clean-media)")
+        print(f"Mode:             {mode}")
     print()
 
 

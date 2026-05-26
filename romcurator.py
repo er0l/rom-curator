@@ -119,6 +119,7 @@ def main(argv: list[str] | None = None) -> int:
                 config,
                 systems=_parse_systems(args.systems),
                 source_folders=src_folders or None,
+                rename_inline=args.rename_inline,
                 clean_superseded=args.clean_superseded,
                 execute=args.execute,
             )
@@ -280,8 +281,9 @@ def build_parser() -> argparse.ArgumentParser:
     normalize_media_parser = subparsers.add_parser("normalize-media", help="Consolidate wheel/, boxart/, snap/ etc. into images/ and videos/ with Batocera suffix naming")
     normalize_media_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only process these systems, comma-separated  (default: all)")
     normalize_media_parser.add_argument("--source-folders", metavar="FOLDER,...", help="Source subfolders to convert, comma-separated  (default: wheel,boxart,snap,cartart,marquee,fanarts,...)")
+    normalize_media_parser.add_argument("--rename-inline", action="store_true", help="Also rename plain-stem files already in images/ and videos/ to add the suffix (images/1942.png → images/1942-image.png)")
     normalize_media_parser.add_argument("--clean-superseded", action="store_true", help="Also move superseded source files (where dest already exists) to recycle bin")
-    normalize_media_parser.add_argument("--execute", action="store_true", help="Actually move files  (default: dry run)")
+    normalize_media_parser.add_argument("--execute", action="store_true", help="Actually move/rename files  (default: dry run)")
     clean_media_parser = subparsers.add_parser("clean-media", help="Remove orphaned media files (images, videos, boxart, etc.) from the ROM archive")
     clean_media_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only check these systems, comma-separated  (default: all)")
     clean_media_parser.add_argument("--media-folders", metavar="FOLDER,...", help="Media subfolder names to check, comma-separated  (default: images,videos,snap,boxart,wheel,...)")
