@@ -350,6 +350,8 @@ satellaview:
 
 saturn:
   nas: saturn
+  folder_based: true
+  subfolder_exclude: true   # all ROMs are in per-game subfolders; no flat CHDs at root
   display: {aspect: "4:3", orientation: landscape}
 
 samcoupe:

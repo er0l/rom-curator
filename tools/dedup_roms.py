@@ -32,6 +32,7 @@ DEFAULT_PREFERRED_REGIONS = ["USA", "Europe", "Japan"]
 # as candidates in a dedup group — they travel with their primary file.
 _COMPANION_EXTENSIONS: frozenset[str] = frozenset({
     ".cue",   # CD cuesheet (companion to .bin)
+    ".mds",   # MDF/MDS metadata descriptor (companion to .mdf — same role as .cue)
     ".gdi",   # Dreamcast cuesheet (companion to .bin track files)
     ".sub",   # subchannel data
     ".sbi",   # subchannel information
@@ -133,6 +134,7 @@ def run_dedup_roms(
             database_path, roms_root, system, regions,
             already_in_title_plan=title_plan_paths,
             folder_based=folder_based,
+            subfolder_exclude=subfolder_exclude,
         )
 
     all_items = items + romm_items
@@ -196,6 +198,7 @@ def _build_romm_plan(
     preferred_regions: list[str],
     already_in_title_plan: set[str],
     folder_based: frozenset[str] = frozenset(),
+    subfolder_exclude: frozenset[str] = frozenset(),
 ) -> tuple[list[DedupPlanItem], dict]:
     """Build a dedup plan from ROMM igdb_id cross-title grouping.
 
@@ -245,6 +248,18 @@ def _build_romm_plan(
                 """
             )
 
+    # Pre-compute flat disc titles for subfolder_exclude systems (same logic as _build_plan).
+    _DISC_IMAGE_EXTS: frozenset[str] = frozenset({".chd", ".cdi", ".iso", ".img"})
+    flat_disc_titles_romm: dict[str, set[str]] = {}
+    for row in rows:
+        sys = str(row["system"])
+        if sys not in subfolder_exclude:
+            continue
+        if len(Path(str(row["relative_path"])).parts) != 2:
+            continue
+        if Path(str(row["filename"])).suffix.lower() in _DISC_IMAGE_EXTS:
+            flat_disc_titles_romm.setdefault(sys, set()).add(str(row["title"]))
+
     # Group by (system, igdb_id).
     groups: dict[tuple[str, str], list] = {}
     for row in rows:
@@ -252,8 +267,17 @@ def _build_romm_plan(
         # Skip files already handled by the title-based pass.
         if rel in already_in_title_plan:
             continue
-        sys    = str(row["system"])
-        igdb   = str(row["igdb_id"])
+        # Apply the same subfolder filter as _build_plan.
+        sys   = str(row["system"])
+        parts = Path(rel).parts
+        if sys in folder_based and len(parts) >= 3:
+            if sys in subfolder_exclude:
+                if str(row["title"]) not in flat_disc_titles_romm.get(sys, set()):
+                    continue
+            else:
+                if len(parts) >= 4:
+                    continue
+        igdb = str(row["igdb_id"])
         groups.setdefault((sys, igdb), []).append(row)
 
     items: list[DedupPlanItem] = []
