@@ -222,6 +222,67 @@ Profiles drive export planning and manifest generation.
 
 ### Export Engine
 
+#### Typical workflow
+
+**Step 1 — Explain** (zero files written, just shows the plan):
+
+```bash
+python3 romcurator.py explain r36s
+```
+
+Shows a table per system: seen, selected, and how many were skipped by each
+filter (region, beta, compat, controls, etc.).  Good first check before
+committing to a build.
+
+**Step 2 — Dry-run build** (still nothing written):
+
+```bash
+python3 romcurator.py build r36s
+```
+
+Same as `explain` plus the final "Planned entries: N" line.  Use this to
+confirm the total count looks right.
+
+**Step 3 — Generate the manifest**:
+
+```bash
+python3 romcurator.py build r36s --execute
+```
+
+Writes the manifest files (see below).  Safe to re-run after profile changes
+— existing files are overwritten in place.
+
+**Step 4 — Dry-run rsync** (shows what would transfer, device untouched):
+
+```bash
+# SSH
+python3 romcurator.py rom-rsync r36s --dest root@192.168.1.100:/recalbox/share/roms
+# SD card mounted locally
+python3 romcurator.py rom-rsync r36s --dest /run/media/erol/SDCARD/roms
+```
+
+**Step 5 — Transfer ROMs to the device**:
+
+```bash
+python3 romcurator.py rom-rsync r36s --dest root@192.168.1.100:/recalbox/share/roms --execute
+```
+
+**Rebuilding after profile changes**:
+
+```bash
+# Re-generate the manifest (overwrites in place — always safe)
+python3 romcurator.py build r36s --execute
+
+# Also remove .files for systems you removed from the profile
+python3 romcurator.py sync r36s --execute --prune --yes
+```
+
+> **Tip:** set `rsync.dest` in the profile yaml once and omit `--dest` on
+> every command.  Use `--dest` to override it when you need a different
+> target (e.g. SD card vs WiFi).
+
+---
+
 Explain what a profile would export:
 
 ```bash
