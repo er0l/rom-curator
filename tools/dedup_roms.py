@@ -11,6 +11,7 @@ permanently deleted without an explicit recovery step.
 from __future__ import annotations
 
 import errno
+import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,6 +39,15 @@ _COMPANION_EXTENSIONS: frozenset[str] = frozenset({
     ".sbi",   # subchannel information
     ".m3u",   # multi-disc playlist
 })
+
+# Detect disc numbers embedded in old No-Intro combined tags like "(NA - Disc 1)"
+# or "(Prototype - Disc A)".  Modern naming uses separate tokens: "(USA) (Disc 1)".
+# When disc=None but this pattern is present we synthesise a disc key so that
+# "Disc 1" and "Disc 2" files are never collapsed into the same dedup group.
+_EMBEDDED_DISC_RE = re.compile(
+    r"\([^)]*?-\s*Disc\s+([0-9A-Za-z]+)\)",
+    re.IGNORECASE,
+)
 
 # Prefer compressed / space-efficient formats over raw ROM files when
 # region/flags are equal.  Lower rank = higher preference.
@@ -260,10 +270,17 @@ def _build_romm_plan(
         if Path(str(row["filename"])).suffix.lower() in _DISC_IMAGE_EXTS:
             flat_disc_titles_romm.setdefault(sys, set()).add(str(row["title"]))
 
-    # Group by (system, igdb_id).
-    groups: dict[tuple[str, str], list] = {}
+    # Group by (system, igdb_id, disc).
+    # Including disc in the key prevents Disc 1 and Disc 2 of a multi-disc game
+    # from being flagged as duplicates of each other — both carry the same igdb_id.
+    # Apply the same synthetic-disc logic as _build_plan so that old-style
+    # "(NA - Disc 1)" filenames (where disc=None in the DB) are separated correctly.
+    groups: dict[tuple[str, str, str | None], list] = {}
     for row in rows:
         rel = str(row["relative_path"])
+        # Skip companion/sidecar files — .m3u, .cue, .gdi, etc. are never standalone.
+        if Path(str(row["filename"])).suffix.lower() in _COMPANION_EXTENSIONS:
+            continue
         # Skip files already handled by the title-based pass.
         if rel in already_in_title_plan:
             continue
@@ -278,13 +295,18 @@ def _build_romm_plan(
                 if len(parts) >= 4:
                     continue
         igdb = str(row["igdb_id"])
-        groups.setdefault((sys, igdb), []).append(row)
+        disc_val = row["disc"]
+        if disc_val is None:
+            m = _EMBEDDED_DISC_RE.search(str(row["filename"]))
+            if m:
+                disc_val = f"(Disc {m.group(1)})"  # synthetic — prevents cross-disc grouping
+        groups.setdefault((sys, igdb, disc_val), []).append(row)
 
     items: list[DedupPlanItem] = []
     dup_groups = 0
     skipped_unclean = 0
 
-    for (sys, igdb_id), group_rows in sorted(groups.items()):
+    for (sys, igdb_id, _disc), group_rows in sorted(groups.items(), key=lambda x: (x[0][0], x[0][1], x[0][2] or "")):
         if len(group_rows) <= 1:
             continue
 
@@ -401,7 +423,19 @@ def _build_plan(
         # Use lowercase title for grouping so that naming-convention differences
         # ("The" vs "the", "SkyHawk" vs "Skyhawk") don't create phantom groups.
         # The kept/displayed title still comes from keeper["title"] (original case).
-        key = (sys, str(row["title"]).lower(), row["disc"])
+        #
+        # Synthetic disc: old No-Intro style "(NA - Disc 1)" leaves disc=None in
+        # the DB because the parser only sees one parenthesised token, not two.
+        # If we grouped those files by (title, None) every disc of the same game
+        # would collapse into one group and get incorrectly flagged as duplicates.
+        # Fix: when disc=None, check the filename for an embedded disc number and
+        # promote it to a synthetic disc key so each disc remains its own group.
+        disc_val = row["disc"]
+        if disc_val is None:
+            m = _EMBEDDED_DISC_RE.search(str(row["filename"]))
+            if m:
+                disc_val = f"(Disc {m.group(1)})"  # synthetic — prevents cross-disc grouping
+        key = (sys, str(row["title"]).lower(), disc_val)
         groups.setdefault(key, []).append(row)
 
     items: list[DedupPlanItem] = []
