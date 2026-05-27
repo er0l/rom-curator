@@ -107,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
             from tools.dedup_roms import run_dedup_roms
             regions = args.preferred_regions or None
             mappings = _load_configured_mappings(config)
-            run_dedup_roms(config, mappings=mappings, system=args.system, preferred_regions=regions, execute=args.execute)
+            run_dedup_roms(config, mappings=mappings, system=args.system, preferred_regions=regions, execute=args.execute, romm_dupes=args.romm_dupes)
         elif args.command == "rename-media":
             from tools.rename_media import run_rename_media
             media_folders = _parse_systems(args.media_folders)
@@ -310,6 +310,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Region priority, highest first  (default: USA Europe Japan)",
     )
     dedup_parser.add_argument("--execute", action="store_true", help="Actually move files  (default: dry run)")
+    dedup_parser.add_argument(
+        "--romm-dupes", action="store_true",
+        help="Also report cross-title duplicates identified via ROMM igdb_id "
+             "(same game with different market names, e.g. '90 Minutes - European Prime Goal' "
+             "and 'J.League Soccer Prime Goal 3').  Groups containing hacks/betas are skipped. "
+             "Requires romm-sync to have been run.",
+    )
     gen_gamelist_parser = subparsers.add_parser("gen-gamelist", help="Generate or update gamelist.xml for EmulationStation-compatible frontends (Batocera, ES-DE, EmuDeck)")
     gen_gamelist_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only process these systems, comma-separated  (default: all)")
     gen_gamelist_parser.add_argument("--execute", action="store_true", help="Actually write gamelist.xml files  (default: dry run)")

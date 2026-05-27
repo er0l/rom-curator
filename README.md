@@ -976,6 +976,30 @@ Files that are never considered duplicates:
 
 Run `inventory` to rebuild the database after execution.
 
+##### ROMM cross-title duplicates (`--romm-dupes`)
+
+Some games were released under completely different titles in different markets.
+No-Intro encodes these as separate titles, so the standard title-based dedup
+misses them.  ROMM links them via a shared `igdb_id`.
+
+```bash
+python3 romcurator.py dedup-roms --system snes --romm-dupes           # report only
+python3 romcurator.py dedup-roms --system snes --romm-dupes --execute # also move losers
+```
+
+Example — both files are the same game:
+```
+KEEP  90 Minutes - European Prime Goal (Europe).zip  — ROMM: '90 Minutes European Prime Goal'
+MOVE  J.League Soccer Prime Goal 3 (Japan).zip       (ROMM: region Europe beats Japan)
+```
+
+The same priority rules apply (region → format → filename).  Groups that
+contain any hack / beta / prototype ROM are automatically skipped — ROMM
+sometimes maps ROM hacks under the same IGDB id as the original, which would
+incorrectly flag them as duplicates.
+
+Requires `romm-sync` to have been run so the `igdb_id` field is populated.
+
 #### rename-media
 
 Rename media files that carry old No-Intro / GoodTools region tags in their
