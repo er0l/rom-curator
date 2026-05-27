@@ -2,7 +2,7 @@
 
 After syncing ROMs to a device and playing them, you may delete games you
 don't enjoy.  This tool compares the device's current ROM set against the
-NAS export that was synced to it, finds the games that are now missing from
+manifest that was used to sync it, finds the games that are now missing from
 the device, and lets you interactively decide which ones to move to the NAS
 recycle bin.
 
@@ -19,9 +19,10 @@ The tool never touches the device — it only moves files on the NAS.
 
 Algorithm
 ---------
-1. List ROM files in the export directory (``paths.exports/<profile>/``).
+1. Read the manifest from ``paths.exports/<profile>/manifest.json``; enumerate
+   the files listed in each ``<system>.files`` manifest.
 2. List ROM files on the device at ``--source`` (local scan or SSH ``find``).
-3. Files present in export but absent from device = deletion candidates.
+3. Files present in manifest but absent from device = deletion candidates.
 4. For each candidate, show title + metadata and ask:
        [y] move to recycle bin
        [n] keep on NAS
@@ -29,15 +30,16 @@ Algorithm
        [q] quit — keep all remaining
 5. Confirmed candidates are moved from ``paths.roms/…`` to the recycle bin.
 
-The export directory must exist (run ``build <profile> --execute`` first).
-The device listing uses relative paths (``<system>/<filename>``) so export
-and device structures are compared correctly regardless of their root paths.
+Run ``build <profile> --execute`` first to generate the manifest.
+The device listing uses relative paths (``<device_folder>/<filename>``) so
+manifest and device structures are compared correctly regardless of root paths.
 """
 
 from __future__ import annotations
 
-import os
 import errno
+import json
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -72,6 +74,15 @@ _ROM_EXTENSIONS: frozenset[str] = frozenset({
     ".psx", ".ps2",
     ".m3u",
 })
+
+
+@dataclass(frozen=True)
+class ManifestEntry:
+    """One file from the export manifest."""
+    device_rel: str   # device-relative path used for diff, e.g. "mame/1942.zip"
+    nas_folder: str   # NAS folder relative to roms_root, e.g. "arcade" or "arcade/mame2003-plus"
+    nas_system: str   # curator system name for DB lookups, e.g. "arcade" or "mame2003-plus"
+    filename: str     # bare filename, e.g. "1942.zip"
 
 
 @dataclass
@@ -134,14 +145,20 @@ def run_nas_curate(
     database_path = Path(str(paths["database"])).expanduser()
     recycle_bin   = Path(str(paths.get("recycle_bin", "/mnt/storage/recycle_bin"))).expanduser()
 
-    export_dir = exports_root / profile
-    if not export_dir.is_dir():
+    export_dir    = exports_root / profile
+    manifest_path = export_dir / "manifest.json"
+    if not manifest_path.exists():
         raise FileNotFoundError(
-            f"Export directory not found: {export_dir}\n"
+            f"Manifest not found: {manifest_path}\n"
             f"Run 'build {profile} --execute' first."
         )
     if not database_path.exists():
         raise FileNotFoundError(f"Inventory database not found: {database_path}")
+
+    try:
+        manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise ValueError(f"Could not read manifest {manifest_path}: {exc}") from exc
 
     console = Console() if Console else None
     summary = NasCurateSummary(profile=profile, source=source, dry_run=not execute)
@@ -149,7 +166,7 @@ def run_nas_curate(
     scope = ", ".join(systems) if systems else "all systems"
     _print(console, f"Profile:   [bold]{profile}[/bold]" if console else f"Profile:   {profile}")
     _print(console, f"Scope:     {scope}")
-    _print(console, f"Export:    {export_dir}")
+    _print(console, f"Manifest:  {manifest_path}")
     _print(console, f"Source:    {source}")
     _print(console, f"Mode:      {'EXECUTE (interactive)' if execute else 'DRY RUN (listing only)'}")
     _print(console, "")
@@ -157,30 +174,44 @@ def run_nas_curate(
     # Build the set of system names to consider (lower-cased for comparison).
     systems_filter: set[str] | None = {s.lower() for s in systems} if systems else None
 
-    # Step 1 — collect relative ROM paths from the export, optionally filtered.
-    _print(console, "Scanning export directory…", style="dim")
-    export_files: set[str] = _list_local_files(export_dir, systems_filter)
-    _print(console, f"  Export:  {len(export_files)} ROM files")
+    # Step 1 — collect manifest entries, optionally filtered by system name.
+    _print(console, "Reading manifest…", style="dim")
+    manifest_entries: list[ManifestEntry] = _read_manifest_entries(
+        export_dir, manifest_data, systems_filter
+    )
+    export_files: set[str] = {e.device_rel for e in manifest_entries}
+    _print(console, f"  Manifest: {len(export_files)} ROM files")
+
+    # Build a lookup: device_rel → ManifestEntry (for NAS path resolution later).
+    entry_by_device_rel: dict[str, ManifestEntry] = {e.device_rel: e for e in manifest_entries}
 
     # Step 2 — collect relative ROM paths from the device, optionally filtered.
+    # The device uses device_folder names matching the manifest's device_folder values.
+    device_folders: set[str] | None = None
+    if systems_filter is not None:
+        device_folders = {
+            str(manifest_data["systems"][s]["device_folder"])
+            for s in manifest_data.get("systems", {})
+            if s.lower() in systems_filter
+        } or None
     _print(console, "Scanning device…", style="dim")
     try:
-        device_files: set[str] = _list_device_files(source, systems_filter)
+        device_files: set[str] = _list_device_files(source, device_folders)
     except Exception as exc:
         raise RuntimeError(f"Could not list files on device '{source}': {exc}") from exc
     _print(console, f"  Device:  {len(device_files)} ROM files")
 
-    # Step 3 — diff: in export but not on device.
+    # Step 3 — diff: in manifest but not on device.
     missing = sorted(export_files - device_files)
     summary.total_candidates = len(missing)
     _print(console, f"  Missing from device: {len(missing)}\n")
 
     if not missing:
-        _print(console, "No deleted ROMs found — device matches the export.", style="green")
+        _print(console, "No deleted ROMs found — device matches the manifest.", style="green")
         return summary
 
     # Step 4 — enrich candidates with DB metadata.
-    candidates = _build_candidates(missing, roms_root, database_path)
+    candidates = _build_candidates(missing, entry_by_device_rel, roms_root, database_path)
 
     if not execute:
         # Dry-run: just print the list grouped by system.
@@ -250,6 +281,45 @@ def run_nas_curate(
 
 
 # ---------------------------------------------------------------------------
+# Manifest helpers
+# ---------------------------------------------------------------------------
+
+def _read_manifest_entries(
+    export_dir: Path,
+    manifest_data: dict,
+    systems_filter: set[str] | None = None,
+) -> list[ManifestEntry]:
+    """Return all files listed in the manifest, optionally filtered by system name.
+
+    Each entry carries the device-relative path (used for diffing against the
+    device), the NAS folder, the curator system name, and the bare filename.
+    """
+    entries: list[ManifestEntry] = []
+    for sys_name, sys_meta in manifest_data.get("systems", {}).items():
+        if systems_filter and sys_name.lower() not in systems_filter:
+            continue
+        nas_folder    = str(sys_meta.get("nas_folder", sys_name))
+        device_folder = str(sys_meta.get("device_folder", sys_name))
+        files_path = export_dir / f"{sys_name}.files"
+        if not files_path.exists():
+            continue
+        for line in files_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            # The device-relative path mirrors the rsync destination structure.
+            device_rel = f"{device_folder}/{line}"
+            filename = Path(line).name
+            entries.append(ManifestEntry(
+                device_rel=device_rel,
+                nas_folder=nas_folder,
+                nas_system=sys_name,
+                filename=filename,
+            ))
+    return entries
+
+
+# ---------------------------------------------------------------------------
 # File listing helpers
 # ---------------------------------------------------------------------------
 
@@ -257,10 +327,11 @@ def _list_local_files(
     root: Path,
     systems_filter: set[str] | None = None,
 ) -> set[str]:
-    """Return relative ROM paths under *root*, e.g. {'arcade/1942.zip'}.
+    """Return relative ROM paths under *root*, e.g. {'mame/1942.zip'}.
 
-    *systems_filter* — if provided, only include paths whose first component
-    (the system directory name) is in the set (case-insensitive).
+    *systems_filter* — if provided, only include paths whose first path
+    component is in the set (case-insensitive).  Pass device folder names
+    (e.g. ``{'mame', 'snes'}``) not curator system names.
     """
     result: set[str] = set()
     for dirpath, _dirs, files in os.walk(root):
@@ -284,7 +355,7 @@ def _list_device_files(
 
     For SSH sources (``user@host:/path``) we run ``find`` over SSH.
     For local paths we walk the directory directly.
-    *systems_filter* is passed through to filter by system directory name.
+    *systems_filter* — device folder names to include (e.g. ``{'mame', 'snes'}``).
     """
     if ":" in source and not source.startswith("/"):
         return _list_ssh_files(source, systems_filter)
@@ -352,14 +423,25 @@ def _list_ssh_files(
 
 def _build_candidates(
     missing_rel: list[str],
+    entry_by_device_rel: dict[str, ManifestEntry],
     roms_root: Path,
     database_path: Path,
 ) -> list[CurateCandidate]:
-    """Enrich missing-file entries with DB metadata and NAS path."""
-    # Build a {system: {filename: row}} lookup from DB.
-    systems_needed = {rel.split("/")[0] for rel in missing_rel if "/" in rel}
+    """Enrich missing-file entries with DB metadata and NAS path.
 
-    meta: dict[str, dict[str, dict]] = {}  # system → filename → row
+    ``entry_by_device_rel`` maps device-relative paths (``"mame/1942.zip"``) to
+    ``ManifestEntry`` objects so we can resolve the correct NAS folder and DB
+    system name even when the device folder differs from the NAS folder (e.g.
+    arcade ROMs synced to a ``mame/`` folder on Batocera).
+    """
+    # Collect unique (nas_system) values for a single DB pass.
+    systems_needed: set[str] = set()
+    for rel in missing_rel:
+        entry = entry_by_device_rel.get(rel)
+        if entry:
+            systems_needed.add(entry.nas_system)
+
+    meta: dict[str, dict[str, dict]] = {}  # nas_system → filename → row
     with InventoryDatabase(database_path) as db:
         db.initialize()
         for system in systems_needed:
@@ -383,10 +465,19 @@ def _build_candidates(
 
     candidates: list[CurateCandidate] = []
     for rel in missing_rel:
-        parts = rel.split("/", 1)
-        if len(parts) != 2:
-            continue
-        system, filename = parts
+        entry = entry_by_device_rel.get(rel)
+        if entry is None:
+            # Fallback: parse from path (should not normally happen).
+            parts = rel.split("/", 1)
+            if len(parts) != 2:
+                continue
+            system = parts[0]
+            filename = parts[1]
+            nas_folder = system
+        else:
+            system    = entry.nas_system
+            filename  = entry.filename
+            nas_folder = entry.nas_folder
 
         row = meta.get(system, {}).get(filename)
         if row:
@@ -402,9 +493,9 @@ def _build_candidates(
             title = Path(filename).stem
             year = genre = developer = None
 
-        nas_path = roms_root / system / filename
+        nas_path: Path | None = roms_root / nas_folder / filename
         if not nas_path.exists():
-            nas_path = None  # type: ignore[assignment]
+            nas_path = None
 
         candidates.append(CurateCandidate(
             rel_path=rel,

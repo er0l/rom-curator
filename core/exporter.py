@@ -1,11 +1,25 @@
-"""Hardlink export planning and execution."""
+"""Export planning and manifest generation.
+
+The export no longer creates hardlinks on the NAS.  Instead, ``execute_export_plan``
+writes a lightweight manifest into ``exports/<profile>/``:
+
+* ``<system>.files``  — one path per line, relative to the system's NAS folder,
+  suitable for passing directly to ``rsync --files-from``.
+* ``manifest.json``  — profile/target metadata and a per-system summary
+  (nas_folder, device_folder, file count, build timestamp).
+
+``rom-rsync`` reads the manifest and runs rsync with ``--files-from`` for each
+system.  ``nas-curate`` reads the manifest to determine what was exported
+instead of walking a directory of hardlinks.
+"""
 
 from __future__ import annotations
 
+import json
+from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
-import os
-import shutil
 
 from .compat import CompatList, load_compat_lists, passes_compat
 from .database import InventoryDatabase
@@ -59,6 +73,9 @@ class ExportPlan:
     export_root: Path
     items: list[ExportPlanItem] = field(default_factory=list)
     summaries: dict[str, ExportSystemSummary] = field(default_factory=dict)
+    # Populated by create_export_plan — used by execute_export_plan to write manifests.
+    nas_paths: dict[str, str] = field(default_factory=dict)      # system → NAS folder (may be subpath)
+    target_aliases: dict[str, str] = field(default_factory=dict) # system → device folder name
 
     @property
     def total_size(self) -> int:
@@ -68,10 +85,10 @@ class ExportPlan:
 @dataclass(frozen=True)
 class ExportResult:
     planned: int
-    linked: int
+    written: int        # manifest entries written (total files across all systems)
     skipped_existing: int
     conflicts: int
-    pruned: int
+    pruned: int         # number of stale .files removed (prune mode)
     dry_run: bool
     export_root: Path
 
@@ -132,6 +149,8 @@ def create_export_plan(
         for canonical, meta in mappings.items()
         if isinstance(meta, dict)
     }
+    # Store on plan so execute_export_plan can write accurate manifest metadata.
+    plan.nas_paths = {s: _nas_paths.get(s, s) for s in systems}
 
     # Folder-based systems store each game as a subfolder (e.g. scummvm, dos, windows).
     # The export unit is the whole subfolder; all files within it are hardlinked together.
@@ -177,6 +196,8 @@ def create_export_plan(
         if not target_alias:
             summary.no_target_alias += summary.seen
             continue
+        # Record for manifest writing.
+        plan.target_aliases[system] = target_alias
 
         is_arcade_system = system in _ARCADE_SUBSYSTEMS or system == "arcade"
         is_folder_based = system in folder_based_systems
@@ -294,13 +315,32 @@ def execute_export_plan(
     prune: bool = False,
     yes: bool = False,
 ) -> ExportResult:
-    if (rebuild or prune) and not yes:
-        raise ValueError("--rebuild and --prune require --yes")
+    """Write per-system ``.files`` manifests and a ``manifest.json`` index.
+
+    Parameters
+    ----------
+    plan:
+        The plan produced by ``create_export_plan``.
+    dry_run:
+        If True (default) nothing is written — returns a preview result.
+    rebuild:
+        Remove all existing ``.files`` and ``manifest.json`` before writing
+        the new ones.  Useful when systems have been removed from a profile
+        so their stale manifests are cleaned up.  Does NOT require ``--yes``
+        because no ROM files are touched.
+    prune:
+        Like rebuild but only removes ``.files`` for systems that are no
+        longer in the current plan.  Requires ``--yes``.
+    yes:
+        Must be True when ``prune`` is set.
+    """
+    if prune and not yes:
+        raise ValueError("--prune requires --yes")
 
     if dry_run:
         return ExportResult(
             planned=len(plan.items),
-            linked=0,
+            written=0,
             skipped_existing=0,
             conflicts=0,
             pruned=0,
@@ -308,43 +348,67 @@ def execute_export_plan(
             export_root=plan.export_root,
         )
 
-    if rebuild and plan.export_root.exists():
-        shutil.rmtree(plan.export_root)
+    plan.export_root.mkdir(parents=True, exist_ok=True)
 
-    linked = 0
-    skipped_existing = 0
-    conflicts = 0
-    pruned = 0
-    planned_destinations = {item.destination.resolve() for item in plan.items}
+    if rebuild and plan.export_root.exists():
+        for existing in plan.export_root.glob("*.files"):
+            existing.unlink()
+        manifest_file = plan.export_root / "manifest.json"
+        if manifest_file.exists():
+            manifest_file.unlink()
+
+    # Group items by (system, target_alias) — derive relative paths from destination.
+    system_files: dict[str, list[str]] = defaultdict(list)
+    system_alias: dict[str, str] = {}  # system → device_folder
 
     for item in plan.items:
-        item.destination.parent.mkdir(parents=True, exist_ok=True)
-        if item.destination.exists():
-            if _same_file(item.source, item.destination):
-                skipped_existing += 1
-                continue
-            conflicts += 1
-            continue
-        os.link(item.source, item.destination)
-        linked += 1
+        try:
+            rel = str(item.destination.relative_to(plan.export_root / item.target_system))
+        except ValueError:
+            rel = item.destination.name
+        system_files[item.system].append(rel)
+        system_alias[item.system] = item.target_system
 
+    # Write per-system .files (sorted, deduplicated).
+    written = 0
+    systems_meta: dict[str, dict] = {}
+    for sys_name in sorted(system_files):
+        file_list = sorted(set(system_files[sys_name]))
+        files_path = plan.export_root / f"{sys_name}.files"
+        files_path.write_text("\n".join(file_list) + "\n", encoding="utf-8")
+        written += len(file_list)
+        systems_meta[sys_name] = {
+            "nas_folder": plan.nas_paths.get(sys_name, sys_name),
+            "device_folder": system_alias[sys_name],
+            "count": len(file_list),
+        }
+
+    # Write manifest.json.
+    manifest: dict = {
+        "profile": plan.profile_name,
+        "target": plan.target,
+        "built_at": datetime.now(timezone.utc).isoformat(),
+        "systems": systems_meta,
+    }
+    (plan.export_root / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    # Prune stale .files for systems no longer in the plan.
+    pruned = 0
     if prune and plan.export_root.exists():
-        for path in sorted(plan.export_root.rglob("*"), reverse=True):
-            if path.is_dir():
-                try:
-                    path.rmdir()
-                except OSError:
-                    pass
-                continue
-            if path.resolve() not in planned_destinations:
-                path.unlink()
+        current_systems = set(system_files.keys())
+        for stale in plan.export_root.glob("*.files"):
+            if stale.stem not in current_systems:
+                stale.unlink()
                 pruned += 1
 
     return ExportResult(
         planned=len(plan.items),
-        linked=linked,
-        skipped_existing=skipped_existing,
-        conflicts=conflicts,
+        written=written,
+        skipped_existing=0,
+        conflicts=0,
         pruned=pruned,
         dry_run=False,
         export_root=plan.export_root,
@@ -387,7 +451,7 @@ def print_export_plan(plan: ExportPlan) -> None:
         for row in rows:
             table.add_row(*row)
         console.print(table)
-        console.print(f"Planned hardlinks: {len(plan.items)}")
+        console.print(f"Planned entries: {len(plan.items)}")
         console.print(f"Logical size: {_format_bytes(plan.total_size)}")
         return
 
@@ -397,7 +461,7 @@ def print_export_plan(plan: ExportPlan) -> None:
     print("System | Seen | Selected | Size | Region | Beta | Proto | Hack | Rating | Unidentified | Non-game | Controls | Compat | Year | Cap | Dupes | Clones")
     for row in rows:
         print(" | ".join(row))
-    print(f"Planned hardlinks: {len(plan.items)}")
+    print(f"Planned entries: {len(plan.items)}")
     print(f"Logical size: {_format_bytes(plan.total_size)}")
 
 
@@ -405,10 +469,13 @@ def print_export_result(result: ExportResult) -> None:
     mode = "dry run" if result.dry_run else "executed"
     print(f"Build {mode}: {result.export_root}")
     print(f"Planned: {result.planned}")
-    print(f"Linked: {result.linked}")
-    print(f"Skipped existing: {result.skipped_existing}")
-    print(f"Conflicts: {result.conflicts}")
-    print(f"Pruned: {result.pruned}")
+    if result.dry_run:
+        print("Run with --execute to write the manifest files.")
+    else:
+        print(f"Written: {result.written} manifest entries across {result.export_root}/")
+        if result.pruned:
+            print(f"Pruned: {result.pruned} stale system manifest(s)")
+        print("Run 'rom-rsync <profile> --dest <device>' to sync ROMs to a device.")
 
 
 def _skip_reason(row, preferred_regions: list[str], selection: dict[str, object]) -> str | None:
@@ -620,13 +687,6 @@ def _destination_for(export_root: Path, target_alias: str, nas_path: str, relati
     rel_parts = Path(relative_path).parts
     remainder = rel_parts[len(nas_parts):] if rel_parts[:len(nas_parts)] == nas_parts else rel_parts
     return export_root / target_alias / Path(*remainder)
-
-
-def _same_file(source: Path, destination: Path) -> bool:
-    try:
-        return source.stat().st_ino == destination.stat().st_ino and source.stat().st_dev == destination.stat().st_dev
-    except OSError:
-        return False
 
 
 def _as_string_list(value: object) -> list[str]:

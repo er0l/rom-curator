@@ -2,13 +2,13 @@
 
 ![ROM Curator](images/rom-curator.png)
 
-ROM Curator is a Python tool for inventorying and eventually exporting curated
-views of a large retro ROM archive stored on a NAS.
+ROM Curator is a Python tool for inventorying and exporting curated views of a
+large retro ROM archive stored on a NAS.
 
-The project is being built in phases. The current implementation supports safe
-metadata inventory, system mapping, device profiles, reporting, cautious
-hardlink export builds, ROMM metadata sync, compatibility filtering, and
-EmulationStation gamelist generation.  It does not modify ROM files.
+The current implementation supports safe metadata inventory, system mapping,
+device profiles, reporting, manifest-based export builds, ROMM metadata sync,
+compatibility filtering, and EmulationStation gamelist generation.
+It does not modify ROM files.
 
 ## Goals
 
@@ -16,7 +16,7 @@ EmulationStation gamelist generation.  It does not modify ROM files.
 - Inventory large ROM libraries safely, including multi-terabyte NAS archives.
 - Support target ecosystems such as EmuDeck, R36S/R39 Max, Batocera, and ROMM.
 - Normalize system names through a mapping matrix instead of hardcoded folder logic.
-- Create curated exports using hardlinks only.
+- Create curated exports using lightweight manifests (no hardlinks, no data duplication).
 
 ## Safety Rules
 
@@ -218,7 +218,7 @@ Inspect one profile and its target folder aliases:
 python3 romcurator.py profile r36s
 ```
 
-Profiles drive export planning and hardlink builds.
+Profiles drive export planning and manifest generation.
 
 ### Export Engine
 
@@ -228,35 +228,50 @@ Explain what a profile would export:
 python3 romcurator.py explain r36s
 ```
 
-Dry-run an export build:
+Dry-run an export build (shows counts, no files written):
 
 ```bash
 python3 romcurator.py build r36s
 ```
 
-Create hardlinks:
+Generate the export manifest:
 
 ```bash
 python3 romcurator.py build r36s --execute
 ```
 
-Exports are written under:
+The manifest is written under `<exports>/<profile-name>/`:
 
 ```text
-<exports>/<profile-name>/<target-system>/
+/mnt/storage/exports/r36s/
+  manifest.json          ← profile metadata + per-system summary
+  snes.files             ← file list for rsync (paths relative to NAS snes/ folder)
+  arcade.files           ← file list for rsync (paths relative to NAS arcade/ folder)
+  mame2003-plus.files    ← file list for rsync (paths relative to arcade/mame2003-plus/)
+  …
 ```
 
-For example:
+`manifest.json` example:
 
-```text
-/mnt/storage/exports/r36s/gba/
-/mnt/storage/exports/steamdeck/genesis/
+```json
+{
+  "profile": "r36s",
+  "target": "r36s",
+  "built_at": "2026-05-27T12:00:00+00:00",
+  "systems": {
+    "snes":          {"nas_folder": "snes",                "device_folder": "snes", "count": 312},
+    "arcade":        {"nas_folder": "arcade",              "device_folder": "mame", "count": 2841},
+    "mame2003-plus": {"nas_folder": "arcade/mame2003-plus","device_folder": "mame", "count": 124}
+  }
+}
 ```
+
+`rom-rsync` reads the manifest and calls `rsync --files-from` for each system,
+sourcing ROMs directly from the NAS — no hardlinks, no data duplication.
 
 The export engine:
 
-- uses hardlinks only
-- never copies ROM data
+- never copies or hardlinks ROM data
 - selects one preferred region per title
 - skips beta/prototype/hack files unless the profile allows them
 - filters by ROMM metadata when `romm-sync` has been run (see below)
@@ -816,7 +831,7 @@ rom-curator/
 │   ├── compat_import.py    ← xlsx compatibility list importer
 │   ├── database.py         ← SQLite layer (roms, mame_machines, romm_roms)
 │   ├── dat_check.py        ← compare ROM folder against MAME XML DAT files
-│   ├── exporter.py         ← export plan, hardlink execution, arcade dedup
+│   ├── exporter.py         ← export plan, manifest generation, arcade dedup
 │   ├── folder_check.py     ← compare two ROM folders for duplicate detection
 │   ├── inventory.py        ← scan orchestration
 │   ├── mappings.py         ← systems.yaml loader and layout file loader
@@ -1055,8 +1070,10 @@ The recycle bin path is configured under `paths.recycle_bin` in `config.yaml` (d
 
 #### rom-rsync
 
-Rsync a profile's hardlink export to a target device — a local SD card mount
-or a networked device reachable via SSH.
+Sync curated ROMs from the NAS to a target device — a local SD card mount or a
+networked device reachable via SSH.  Uses the manifest produced by
+`build <profile> --execute` and calls `rsync --files-from` for each system,
+so only the curated ROM files are transferred and no intermediate copies exist.
 
 ```bash
 # Dry-run (shows what would be transferred, no files sent)
@@ -1070,13 +1087,18 @@ python3 romcurator.py rom-rsync r36s --execute
 # Transfer only specific systems
 python3 romcurator.py rom-rsync r36s --systems snes,gba --execute
 
-# Transfer and remove files on the device not in the export (exact mirror)
+# Transfer and remove files on the device not in the manifest (exact mirror)
 python3 romcurator.py rom-rsync r36s --delete --execute
 ```
 
-The source is always the pre-built export for the named profile
-(`paths.exports/<profile>/`). Run `build <profile> --execute` first if the
-export does not exist.
+The manifest must exist (`build <profile> --execute` first).
+Each system is transferred with its own rsync call:
+
+```
+rsync --files-from=snes.files /mnt/storage/roms/snes/ <dest>/snes/
+rsync --files-from=arcade.files /mnt/storage/roms/arcade/ <dest>/mame/
+rsync --files-from=mame2003-plus.files /mnt/storage/roms/arcade/mame2003-plus/ <dest>/mame/
+```
 
 The destination defaults to `rsync.dest` in the profile yaml — set it once,
 then omit `--dest` on every command.  `--dest` always overrides the profile
@@ -1101,8 +1123,8 @@ left untouched. Enable it when you want the device to mirror the export exactly.
 
 After syncing ROMs to a device and playing them, you may delete games you
 don't enjoy.  `nas-curate` detects those deletions by comparing the device's
-current ROM set against the NAS export that was synced to it, then offers an
-interactive prompt to move the corresponding NAS originals to the recycle bin.
+current ROM set against the build manifest, then offers an interactive prompt
+to move the corresponding NAS originals to the recycle bin.
 
 ```bash
 # Dry-run — list candidates without prompting
@@ -1140,9 +1162,10 @@ The tool **never touches the device** — it only moves files on the NAS.
 Files are moved to the recycle bin (not permanently deleted) so you can
 recover mistakes.
 
-The export directory must exist (`build <profile> --execute` first). The
-device listing uses relative paths (`<system>/<filename>`) so local and SSH
-sources are compared correctly regardless of their root location.
+The manifest must exist (`build <profile> --execute` first). Device files are
+listed using relative paths (`<device_folder>/<filename>`) matching the
+manifest's `device_folder` values, so local and SSH sources compare correctly
+regardless of their root path.
 
 ### System Discovery
 

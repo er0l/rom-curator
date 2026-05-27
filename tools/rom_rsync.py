@@ -1,7 +1,12 @@
-"""Rsync a profile's hardlink export to a target device.
+"""Rsync curated ROMs to a target device using per-system manifest files.
 
-Wraps rsync to transfer the curated export built by 'build <profile>' to a
-local mount point or a remote device reachable via SSH.
+``build <profile> --execute`` writes a manifest into ``exports/<profile>/``:
+
+* ``manifest.json``    — maps each system to its NAS folder and device folder
+* ``<system>.files``  — file paths relative to the system's NAS folder
+
+This tool reads the manifest and calls rsync with ``--files-from`` so only the
+curated ROM files are transferred — no intermediate hardlink directory needed.
 
 Usage examples::
 
@@ -14,18 +19,14 @@ Usage examples::
     # Transfer and remove files on the device that are no longer in the export
     python3 romcurator.py rom-rsync r36s --dest root@192.168.1.100:/path --delete --execute
 
-The source is always the pre-built export directory for the named profile
-(``paths.exports/<profile>/``).  Run ``build <profile> --execute`` first if
-the export does not exist.
-
 SSH connectivity uses the standard OpenSSH client — key auth, agent, and
 ~/.ssh/config entries all work normally.  No credentials are stored here.
 """
 
 from __future__ import annotations
 
+import json
 import subprocess
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -84,34 +85,42 @@ def run_rom_rsync(
         raise ValueError("Config key 'paths' must be a mapping")
 
     exports_root = Path(str(paths.get("exports", "/mnt/storage/exports"))).expanduser()
-    export_root = exports_root / profile
+    roms_root    = Path(str(paths.get("roms", "/mnt/storage/roms"))).expanduser()
+    export_dir   = exports_root / profile
+    manifest_path = export_dir / "manifest.json"
 
-    if not export_root.is_dir():
+    if not manifest_path.exists():
         raise FileNotFoundError(
-            f"Export directory not found: {export_root}\n"
-            f"Run 'build {profile} --execute' first to create it."
+            f"Manifest not found: {manifest_path}\n"
+            f"Run 'build {profile} --execute' first to generate it."
         )
 
-    # Resolve which system sub-directories to sync.
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise ValueError(f"Could not read manifest {manifest_path}: {exc}") from exc
+
+    all_systems_in_manifest: list[str] = sorted(manifest.get("systems", {}).keys())
+
+    # Filter to requested systems.
     if systems:
-        sync_systems = systems
-        # Warn about systems not present in the export.
-        missing = [s for s in sync_systems if not (export_root / s).is_dir()]
-        if missing:
+        unknown = sorted(set(systems) - set(all_systems_in_manifest))
+        if unknown:
             raise FileNotFoundError(
-                f"System(s) not found in export '{profile}': {', '.join(missing)}\n"
-                f"Available: {', '.join(sorted(d.name for d in export_root.iterdir() if d.is_dir()))}"
+                f"System(s) not in manifest for profile '{profile}': {', '.join(unknown)}\n"
+                f"Available: {', '.join(all_systems_in_manifest)}"
             )
+        sync_systems = systems
     else:
-        sync_systems = None  # signal: sync the whole root
+        sync_systems = all_systems_in_manifest
 
     console = Console() if Console else None
     dry_run = not execute
 
-    scope = ", ".join(sync_systems) if sync_systems else "all systems"
+    scope = ", ".join(sync_systems) if sync_systems != all_systems_in_manifest else "all systems"
     _print(console, f"Profile:   [bold]{profile}[/bold]" if console else f"Profile:   {profile}")
     _print(console, f"Scope:     {scope}")
-    _print(console, f"Export:    {export_root}/")
+    _print(console, f"Manifest:  {manifest_path}")
     _print(console, f"Dest:      {dest}")
     _print(console, f"Delete:    {'yes' if delete else 'no'}")
     _print(console, f"Mode:      {'DRY RUN' if dry_run else 'EXECUTE'}")
@@ -119,9 +128,9 @@ def run_rom_rsync(
 
     base_cmd: list[str] = [
         "rsync",
-        "--archive",        # -a: recursive + preserve permissions/times/links
-        "--verbose",        # show transferred files
-        "--progress",       # per-file transfer progress
+        "--archive",         # -a: recursive + preserve permissions/times/links
+        "--verbose",         # show transferred files
+        "--progress",        # per-file transfer progress
         "--human-readable",
     ]
     if dry_run:
@@ -133,10 +142,10 @@ def run_rom_rsync(
 
     worst_exit = 0
 
-    def _run_rsync(src: str, dst: str) -> int:
-        cmd = base_cmd + [src, dst]
+    def _run_rsync(files_from: Path, src: str, dst: str) -> int:
+        cmd = base_cmd + [f"--files-from={files_from}", src, dst]
         if console:
-            console.print(f"[dim]rsync {src} → {dst}[/dim]")
+            console.print(f"[dim]rsync --files-from={files_from.name} {src} → {dst}[/dim]")
         try:
             r = subprocess.run(cmd, check=False)
             return r.returncode
@@ -146,29 +155,30 @@ def run_rom_rsync(
                 "(or brew install rsync on macOS)"
             )
 
-    if sync_systems:
-        # Per-system invocations: rsync exports/<profile>/<sys>/ → dest/<sys>/
-        dest_has_colon = ":" in dest and not dest.startswith("/")
-        for sys_name in sync_systems:
-            src = f"{export_root / sys_name}/"
-            dst = f"{dest.rstrip('/')}/{sys_name}" if not dest_has_colon else \
-                  f"{dest.rstrip('/')}/{sys_name}"
-            code = _run_rsync(src, dst)
-            if code > worst_exit:
-                worst_exit = code
-    else:
-        # Whole-root invocation: rsync exports/<profile>/ → dest/
-        src = f"{export_root}/"
-        code = _run_rsync(src, dest)
-        worst_exit = code
+    for sys_name in sync_systems:
+        sys_meta = manifest["systems"][sys_name]
+        nas_folder: str  = sys_meta["nas_folder"]    # e.g. "snes" or "arcade/mame2003-plus"
+        device_folder: str = sys_meta["device_folder"]  # e.g. "snes" or "mame"
+        files_path = export_dir / f"{sys_name}.files"
+
+        if not files_path.exists():
+            _print(console, f"  Warning: {files_path.name} not found — skipping {sys_name}", style="yellow")
+            continue
+
+        nas_src  = str(roms_root / nas_folder) + "/"
+        dest_sys = f"{dest.rstrip('/')}/{device_folder}"
+
+        code = _run_rsync(files_path, nas_src, dest_sys)
+        if code > worst_exit:
+            worst_exit = code
 
     summary = RsyncSummary(
         profile=profile,
-        source=export_root,
+        source=export_dir,
         dest=dest,
         dry_run=dry_run,
         delete=delete,
-        systems=sync_systems,
+        systems=sync_systems if sync_systems != all_systems_in_manifest else None,
         exit_code=worst_exit,
     )
 
