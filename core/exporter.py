@@ -60,6 +60,7 @@ class ExportSystemSummary:
     arcade_clones_removed: int = 0
     skipped_non_game: int = 0
     skipped_controls: int = 0
+    skipped_genre: int = 0
     skipped_compat: int = 0
     skipped_year: int = 0
     capped: int = 0
@@ -130,6 +131,24 @@ def create_export_plan(
     _mame_versions: list[str] | None = mame_versions or _as_string_list(
         selection.get("mame_versions")
     ) or None
+    # system_filters: per-system genre include/exclude lists.
+    # genre_include — only export games whose ROMM genres field contains at least
+    #   one listed genre; games with NULL genres always pass (never falsely excluded).
+    # genre_exclude — skip games whose genres contain any listed genre.
+    _sys_genre_include: dict[str, frozenset[str]] = {}
+    _sys_genre_exclude: dict[str, frozenset[str]] = {}
+    _sys_filters_raw = profile.get("system_filters") or {}
+    if isinstance(_sys_filters_raw, dict):
+        for _sname, _sfilt in _sys_filters_raw.items():
+            if not isinstance(_sfilt, dict):
+                continue
+            _inc = _sfilt.get("genre_include") or []
+            _exc = _sfilt.get("genre_exclude") or []
+            if _inc:
+                _sys_genre_include[str(_sname)] = frozenset(str(g).strip() for g in _inc)
+            if _exc:
+                _sys_genre_exclude[str(_sname)] = frozenset(str(g).strip() for g in _exc)
+
     # Compat list settings — loaded per profile chip, applied per system.
     compat_chip: str | None = str(selection.get("compat_chip")) if selection.get("compat_chip") else None
     compat_min_playability: str = str(selection.get("compat_min_playability") or "Ok")
@@ -205,12 +224,18 @@ def create_export_plan(
         title_groups = grouped.get(system, {})
         compat = _compat_lists.get(system) if compat_chip else None
         include_unlisted = compat_include_unlisted and system not in compat_unlisted_exclude
+        _genre_inc = _sys_genre_include.get(system, frozenset())
+        _genre_exc = _sys_genre_exclude.get(system, frozenset())
+        _has_genre_filter = bool(_genre_inc or _genre_exc)
 
         for rows in title_groups.values():
             if is_folder_based:
                 # Folder-based game: hardlink every file in the subfolder as one unit.
                 # Region/beta/hack/year filters don't apply at the individual-file level
-                # for multi-file game installs, but compat filtering applies per game.
+                # for multi-file game installs, but compat/genre filtering applies per game.
+                if _has_genre_filter and not _passes_genre_filter(rows[0], _genre_inc, _genre_exc):
+                    summary.skipped_genre += 1
+                    continue
                 if not passes_compat(compat, rows[0], compat_min_playability, include_unlisted):
                     summary.skipped_compat += 1
                     continue
@@ -241,6 +266,12 @@ def create_export_plan(
                 selected_for_system += 1
                 summary.selected += 1
                 summary.selected_size += game_size
+                continue
+
+            # Genre filter: checked once per group — all rows share the same ROMM genre.
+            # Games with no ROMM data (genres=NULL) always pass through.
+            if _has_genre_filter and rows and not _passes_genre_filter(rows[0], _genre_inc, _genre_exc):
+                summary.skipped_genre += len(rows)
                 continue
 
             candidates = []
@@ -431,6 +462,7 @@ def print_export_plan(plan: ExportPlan) -> None:
             str(summary.skipped_unidentified),
             str(summary.skipped_non_game),
             str(summary.skipped_controls),
+            str(summary.skipped_genre),
             str(summary.skipped_compat),
             str(summary.skipped_year),
             str(summary.capped),
@@ -446,7 +478,7 @@ def print_export_plan(plan: ExportPlan) -> None:
         console.print(f"Target: [bold]{plan.target}[/bold]")
         console.print(f"Export root: [bold]{plan.export_root}[/bold]")
         table = Table(title="Export Plan")
-        for column in ("System", "Seen", "Selected", "Size", "Region", "Beta", "Proto", "Hack", "Rating", "Unidentified", "Non-game", "Controls", "Compat", "Year", "Cap", "Dupes", "Clones"):
+        for column in ("System", "Seen", "Selected", "Size", "Region", "Beta", "Proto", "Hack", "Rating", "Unidentified", "Non-game", "Controls", "Genre", "Compat", "Year", "Cap", "Dupes", "Clones"):
             table.add_column(column)
         for row in rows:
             table.add_row(*row)
@@ -458,7 +490,7 @@ def print_export_plan(plan: ExportPlan) -> None:
     print(f"Profile: {plan.profile_name}")
     print(f"Target: {plan.target}")
     print(f"Export root: {plan.export_root}")
-    print("System | Seen | Selected | Size | Region | Beta | Proto | Hack | Rating | Unidentified | Non-game | Controls | Compat | Year | Cap | Dupes | Clones")
+    print("System | Seen | Selected | Size | Region | Beta | Proto | Hack | Rating | Unidentified | Non-game | Controls | Genre | Compat | Year | Cap | Dupes | Clones")
     for row in rows:
         print(" | ".join(row))
     print(f"Planned entries: {len(plan.items)}")
@@ -606,6 +638,33 @@ def _is_arcade_non_game(row) -> bool:
     and must be present in the export folder alongside the game ROMs.
     """
     return bool(row["mame_ismechanical"])
+
+
+def _passes_genre_filter(
+    row,
+    genre_include: frozenset[str],
+    genre_exclude: frozenset[str],
+) -> bool:
+    """Return True if this ROM's genres satisfy the include/exclude constraints.
+
+    ROMM stores genres as a semicolon-separated string (e.g. "Platform; Adventure").
+    A game passes the include filter when AT LEAST ONE of its genres appears in
+    genre_include.  A game fails the exclude filter when ANY of its genres appears
+    in genre_exclude.
+
+    Games with a NULL genres field always pass — we never falsely exclude games
+    that have no ROMM metadata, for the same reason arcade_exclude_controls skips
+    rows whose mame_control_types is NULL.
+    """
+    raw = row["genres"] if row["genres"] else None
+    if raw is None:
+        return True
+    game_genres = frozenset(g.strip() for g in str(raw).split(";") if g.strip())
+    if genre_include and not (game_genres & genre_include):
+        return False
+    if genre_exclude and (game_genres & genre_exclude):
+        return False
+    return True
 
 
 def _needs_excluded_control(row, excluded: frozenset[str]) -> bool:

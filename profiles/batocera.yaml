@@ -20,7 +20,7 @@ hardware:
 controls:
   joystick: true          # 1× Sanwa JLF 8-way stick
   analogue_sticks: 0      # no analogue sticks
-  buttons: 12             # 12 action buttons (6-button layout × 2 sides)
+  buttons: 10             # 8 face buttons + 2 side buttons (Start/Select are separate)
   mouse: true             # wireless keyboard's integrated trackpad
   keyboard: true          # wireless keyboard — enables DOS, ScummVM, text-adventure games
   spinner: false
@@ -70,3 +70,34 @@ selection:
   # year_to: 2005      # only include games released up to this year
   # min_rating: 60        # skip games with a real IGDB score below this (0 = unrated, always passes)
   # identified_only: true # skip games ROMM considers unidentified
+
+# Per-system genre filters.
+# genre_include: only export games whose ROMM/IGDB genres contain at least one
+#   of the listed values.  Games with no genre metadata always pass through.
+# genre_exclude: skip games whose genres contain any of the listed values.
+# Genre values must match the IGDB genre string exactly (semicolon-separated
+# in the DB; each entry here is checked against individual tokens after splitting).
+system_filters:
+  gamecube:
+    # GameCube uses a C-stick (second analogue stick) and analogue L/R triggers.
+    # This bartop has a single digital joystick and 8 face buttons — no second
+    # stick, no analogue triggers.  Only include genres that are reliably playable
+    # with this layout.  Games with no genre data are never excluded.
+    genre_include:
+      - Fighting
+      - "Hack and slash/Beat 'em up"
+      - "Beat'em Up"          # alternate IGDB spelling
+      - Arcade
+      - Puzzle
+      - Platform
+      - "Role-playing (RPG)"
+      - Music
+      - Strategy
+      - "Real Time Strategy (RTS)"
+      - "Turn-based strategy (TBS)"
+      - "Card & Board Game"
+      - "Shoot'em Up"
+      - "Shoot'em Up / Vertical"
+      - "Quiz/Trivia"
+      - Pinball
+      - "Point-and-click"
