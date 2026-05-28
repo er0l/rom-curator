@@ -22,3 +22,18 @@ parsing:
 romm:
   page_size: 200    # ROMs per API page during romm-sync
   media_delay: 0.05 # seconds between requests during fetch-media
+
+# dedup-roms settings
+dedup:
+  # igdb_ids that --romm-dupes should always skip.
+  # Add entries here when ROMM incorrectly collapses distinct games under one
+  # igdb_id — typically sequels/series entries or franchise compilations.
+  # Format: plain integers as YAML strings or numbers; both are accepted.
+  romm_skip_igdb_ids:
+    # Dreamcast — confirmed false positives (verified 2026-05-28)
+    - 272455   # Neppachi III / IV / VI — different sequels in pachinko-sim series
+    - 317349   # Golf Shiyou yo Course Data (expansion) vs Golf Shiyou yo 2 (sequel)
+    - 3488     # F1 World Grand Prix (1999) vs F1 World Grand Prix II (2000)
+    - 3586     # Ready 2 Rumble Boxing vs Ready 2 Rumble Boxing Round 2
+    - 6708     # Street Fighter III: Double Impact vs 3rd Strike (different SF3 entries)
+    - 94481    # Pachi-Slot Teiou Heiwa SP vs Olympia SP (different machine brands)

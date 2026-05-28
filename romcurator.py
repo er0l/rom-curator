@@ -107,7 +107,15 @@ def main(argv: list[str] | None = None) -> int:
             from tools.dedup_roms import run_dedup_roms
             regions = args.preferred_regions or None
             mappings = _load_configured_mappings(config)
-            run_dedup_roms(config, mappings=mappings, system=args.system, preferred_regions=regions, execute=args.execute, romm_dupes=args.romm_dupes)
+            _skip_igdb = frozenset(
+                s.strip() for part in (args.romm_skip_igdb or []) for s in part.split(",") if s.strip()
+            )
+            run_dedup_roms(
+                config, mappings=mappings, system=args.system, preferred_regions=regions,
+                execute=args.execute, romm_dupes=args.romm_dupes,
+                romm_max_group=args.romm_max_group,
+                romm_skip_igdb=_skip_igdb,
+            )
         elif args.command == "rename-media":
             from tools.rename_media import run_rename_media
             media_folders = _parse_systems(args.media_folders)
@@ -316,6 +324,17 @@ def build_parser() -> argparse.ArgumentParser:
              "(same game with different market names, e.g. '90 Minutes - European Prime Goal' "
              "and 'J.League Soccer Prime Goal 3').  Groups containing hacks/betas are skipped. "
              "Requires romm-sync to have been run.",
+    )
+    dedup_parser.add_argument(
+        "--romm-max-group", type=int, default=4, metavar="N",
+        help="Skip ROMM groups with more than N members — large groups almost always "
+             "indicate a ROMM bulk-import error (default: 4).",
+    )
+    dedup_parser.add_argument(
+        "--romm-skip-igdb", nargs="+", metavar="ID",
+        help="Comma- or space-separated igdb_ids to always skip in --romm-dupes mode. "
+             "Useful for sequels or franchise entries that ROMM incorrectly collapses "
+             "under one igdb_id.  Also reads dedup.romm_skip_igdb_ids from config.yaml.",
     )
     gen_gamelist_parser = subparsers.add_parser("gen-gamelist", help="Generate or update gamelist.xml for EmulationStation-compatible frontends (Batocera, ES-DE, EmuDeck)")
     gen_gamelist_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only process these systems, comma-separated  (default: all)")

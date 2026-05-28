@@ -40,6 +40,29 @@ _COMPANION_EXTENSIONS: frozenset[str] = frozenset({
     ".m3u",   # multi-disc playlist
 })
 
+# Words that carry no identifying information and must be ignored when comparing
+# game titles for similarity.  Keeping this small — we only strip particles and
+# articles that appear in both Japanese romanisations and English titles.
+_STOP_WORDS: frozenset[str] = frozenset({
+    "the", "and", "for", "with", "from",   # English
+    "no", "de", "wo", "ga", "wa", "ni",    # Japanese particles
+})
+
+
+def _title_tokens(title: str) -> frozenset[str]:
+    """Return the set of significant lowercase word-tokens from *title*.
+
+    Strips punctuation, lowercases, then discards tokens that are shorter than
+    three characters or in _STOP_WORDS.  The result is used to check whether
+    two game titles share any meaningful content — a zero intersection is a
+    strong signal that they are different games mis-grouped by ROMM.
+    """
+    words = re.sub(r"[^\w\s]", " ", title.lower()).split()
+    return frozenset(
+        w for w in words if len(w) >= 3 and w not in _STOP_WORDS
+    )
+
+
 # Detect disc numbers embedded in old No-Intro combined tags like "(NA - Disc 1)"
 # or "(Prototype - Disc A)".  Modern naming uses separate tokens: "(USA) (Disc 1)".
 # When disc=None but this pattern is present we synthesise a disc key so that
@@ -95,6 +118,7 @@ class DedupSummary:
     dry_run: bool = True
     romm_groups: int = 0               # groups found via ROMM igdb_id cross-title match
     romm_skipped_unclean: int = 0      # ROMM groups skipped because they contain hacks/betas
+    romm_skipped_badmap: int = 0       # ROMM groups skipped due to likely bad igdb_id mapping
 
 
 def run_dedup_roms(
@@ -105,6 +129,8 @@ def run_dedup_roms(
     preferred_regions: list[str] | None = None,
     execute: bool = False,
     romm_dupes: bool = False,
+    romm_max_group: int = 4,
+    romm_skip_igdb: frozenset[str] = frozenset(),
 ) -> DedupSummary:
     paths = config.get("paths", {})
     if not isinstance(paths, dict):
@@ -115,6 +141,12 @@ def run_dedup_roms(
     recycle_bin = Path(str(paths.get("recycle_bin", "/mnt/storage/recycle_bin"))).expanduser()
     regions = preferred_regions or DEFAULT_PREFERRED_REGIONS
     console = Console() if Console else None
+
+    # Merge CLI-supplied skip list with any igdb_ids listed in config.yaml under
+    # dedup.romm_skip_igdb_ids.  Both sets are always active when --romm-dupes is used.
+    _dedup_cfg = config.get("dedup") or {}
+    _cfg_skip: list = _dedup_cfg.get("romm_skip_igdb_ids") if isinstance(_dedup_cfg, dict) else []  # type: ignore[assignment]
+    _merged_skip: frozenset[str] = romm_skip_igdb | frozenset(str(x) for x in (_cfg_skip or []))
 
     # Systems where each game is a subfolder — individual files inside those
     # subfolders are game data, not standalone ROMs, and must never be deduped.
@@ -135,7 +167,7 @@ def run_dedup_roms(
     items, stats = _build_plan(database_path, roms_root, system, regions, folder_based, subfolder_exclude)
 
     romm_items: list[DedupPlanItem] = []
-    romm_stats: dict = {"groups": 0, "skipped_unclean": 0}
+    romm_stats: dict = {"groups": 0, "skipped_unclean": 0, "skipped_badmap": 0}
     if romm_dupes:
         # Build a set of all relative paths already covered by title-based dedup
         # (both keepers and losers) so ROMM pass doesn't double-process them.
@@ -145,6 +177,8 @@ def run_dedup_roms(
             already_in_title_plan=title_plan_paths,
             folder_based=folder_based,
             subfolder_exclude=subfolder_exclude,
+            max_group_size=romm_max_group,
+            skip_igdb_ids=_merged_skip,
         )
 
     all_items = items + romm_items
@@ -156,6 +190,7 @@ def run_dedup_roms(
         dry_run=not execute,
         romm_groups=romm_stats["groups"],
         romm_skipped_unclean=romm_stats["skipped_unclean"],
+        romm_skipped_badmap=romm_stats["skipped_badmap"],
     )
 
     _print_header(summary, recycle_bin, regions, console, romm_dupes=romm_dupes)
@@ -209,6 +244,8 @@ def _build_romm_plan(
     already_in_title_plan: set[str],
     folder_based: frozenset[str] = frozenset(),
     subfolder_exclude: frozenset[str] = frozenset(),
+    max_group_size: int = 4,
+    skip_igdb_ids: frozenset[str] = frozenset(),
 ) -> tuple[list[DedupPlanItem], dict]:
     """Build a dedup plan from ROMM igdb_id cross-title grouping.
 
@@ -305,20 +342,35 @@ def _build_romm_plan(
     items: list[DedupPlanItem] = []
     dup_groups = 0
     skipped_unclean = 0
+    skipped_badmap = 0
 
     for (sys, igdb_id, _disc), group_rows in sorted(groups.items(), key=lambda x: (x[0][0], x[0][1], x[0][2] or "")):
         if len(group_rows) <= 1:
             continue
 
-        # Skip if any member is a hack / beta / prototype — most likely ROMM
-        # incorrectly grouping mods or demakes alongside the original game.
+        # ── Guard 1: group size cap ────────────────────────────────────────────
+        # Large groups almost always mean a ROMM bulk-import error where many
+        # unrelated games were assigned to the same igdb_id (e.g. 12 different
+        # JP Dreamcast games all mapped to igdb_id=130632 "Sentimental Graffiti 2").
+        if len(group_rows) > max_group_size:
+            skipped_badmap += 1
+            continue
+
+        # ── Guard 2: user-supplied igdb_id skip list ───────────────────────────
+        # Lets users permanently ignore igdb_ids that ROMM consistently maps
+        # incorrectly (sequels collapsed under one id, franchise compilations, etc.)
+        if igdb_id in skip_igdb_ids:
+            skipped_badmap += 1
+            continue
+
+        # ── Guard 3: hack / beta / prototype filter ────────────────────────────
+        # Skip groups that contain ROM-hacks or demo releases — ROMM occasionally
+        # maps these under the original game's IGDB id.
         if any(int(r["is_hack"]) or int(r["is_beta"]) or int(r["is_proto"]) for r in group_rows):
             skipped_unclean += 1
             continue
 
-        dup_groups += 1
-        romm_name = str(group_rows[0]["romm_name"]) if group_rows[0]["romm_name"] else f"igdb:{igdb_id}"
-
+        # Sort to establish keeper (best region / format / filename).
         sorted_rows = sorted(
             group_rows,
             key=lambda r: (
@@ -327,9 +379,40 @@ def _build_romm_plan(
                 str(r["filename"]),
             ),
         )
-
         keeper = sorted_rows[0]
+        romm_name = str(keeper["romm_name"]) if keeper["romm_name"] else f"igdb:{igdb_id}"
+
+        # ── Guard 4: keeper ↔ ROMM name title overlap ─────────────────────────
+        # If the keeper's No-Intro title shares no significant words with the
+        # ROMM canonical name, the igdb_id assignment is almost certainly wrong.
+        # Example: keeper="Jikkyou Powerful Pro Yakyuu" / ROMM="Sentimental Graffiti 2"
+        # → zero overlap → skip.  Legitimate regional variants share the core
+        # franchise name (e.g. "Monaco Grand Prix" appears in both titles).
+        romm_tokens = _title_tokens(romm_name)
+        keep_tokens = _title_tokens(str(keeper["title"]))
+        if romm_tokens and keep_tokens and not (romm_tokens & keep_tokens):
+            skipped_badmap += 1
+            continue
+
+        # ── Guard 5: per-candidate title overlap filter ────────────────────────
+        # Drop any MOVE candidate whose No-Intro title shares no significant words
+        # with either the keeper title or the ROMM canonical name.
+        # Example: keeper="Street Fighter Alpha 3" / ROMM="Street Fighter Alpha 3" /
+        #          loser="Morita no Saikyou Reversi" → zero overlap on both → drop.
+        # Games with no title data are kept (fail-safe — never drop by accident).
+        losers = []
         for loser in sorted_rows[1:]:
+            loser_tokens = _title_tokens(str(loser["title"]))
+            if loser_tokens and not (loser_tokens & keep_tokens) and not (loser_tokens & romm_tokens):
+                continue  # likely a different game mis-mapped to this igdb_id
+            losers.append(loser)
+
+        if not losers:
+            skipped_badmap += 1
+            continue
+
+        dup_groups += 1
+        for loser in losers:
             k_region = str(keeper["region"]) if keeper["region"] else "(none)"
             l_region = str(loser["region"]) if loser["region"] else "(none)"
             reason = (
@@ -348,7 +431,7 @@ def _build_romm_plan(
                 match_type="romm",
             ))
 
-    return items, {"groups": dup_groups, "skipped_unclean": skipped_unclean}
+    return items, {"groups": dup_groups, "skipped_unclean": skipped_unclean, "skipped_badmap": skipped_badmap}
 
 
 def _build_plan(
@@ -513,6 +596,8 @@ def _print_header(
             table.add_row("Duplicate groups (ROMM):", str(summary.romm_groups))
             if summary.romm_skipped_unclean:
                 table.add_row("ROMM groups skipped (unclean):", str(summary.romm_skipped_unclean))
+            if summary.romm_skipped_badmap:
+                table.add_row("ROMM groups skipped (bad mapping):", str(summary.romm_skipped_badmap))
         table.add_row("Files to recycle:", str(summary.files_to_move))
         table.add_row("Preferred regions:", ", ".join(regions))
         table.add_row("Recycle bin:", str(recycle_bin / "roms"))
@@ -525,6 +610,8 @@ def _print_header(
             print(f"Dup groups (ROMM):       {summary.romm_groups}")
             if summary.romm_skipped_unclean:
                 print(f"ROMM groups skipped:     {summary.romm_skipped_unclean}  (contain hack/beta/proto)")
+            if summary.romm_skipped_badmap:
+                print(f"ROMM groups skipped:     {summary.romm_skipped_badmap}  (bad igdb_id mapping)")
         print(f"Files to recycle:        {summary.files_to_move}")
         print(f"Preferred regions:       {', '.join(regions)}")
         print(f"Recycle bin:             {recycle_bin / 'roms'}")
@@ -561,6 +648,17 @@ def _print_romm_plan(items: list[DedupPlanItem], romm_stats: dict, console) -> N
             f"  ({romm_stats['skipped_unclean']} group(s) skipped — contained hack/beta/proto ROMs)",
             style="yellow",
         )
+    if romm_stats.get("skipped_badmap"):
+        _print(
+            console,
+            f"  ({romm_stats['skipped_badmap']} group(s) skipped — bad igdb_id mapping detected)",
+            style="yellow",
+        )
+    _print(
+        console,
+        "  Tip: add persistent false-positive igdb_ids to dedup.romm_skip_igdb_ids in config.yaml",
+        style="dim",
+    )
     print()
 
     if not items:
