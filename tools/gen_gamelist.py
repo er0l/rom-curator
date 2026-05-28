@@ -90,6 +90,7 @@ _VIDEO_EXTS = (".mp4", ".avi", ".mkv")
 _MEDIA_FIELDS: list[tuple[str, list[tuple[str, str, tuple[str, ...]]]]] = [
     ("image", [
         ("images",      "{title}-image",    _IMAGE_EXTS),   # Batocera/Skyscraper suffix
+        ("images",      "{title}",          _IMAGE_EXTS),   # plain title (fetch-media / ROMM fs_stem)
         ("images",      "{stem}",           _IMAGE_EXTS),   # plain stem in images/
         ("boxart",      "{stem}",           _IMAGE_EXTS),
         ("mixart",      "{stem}",           _IMAGE_EXTS),
@@ -369,7 +370,8 @@ def generate_gamelist(
                          WHEN SUBSTR(r.filename,-5,1)='.' THEN SUBSTR(r.filename,1,LENGTH(r.filename)-5)
                          WHEN SUBSTR(r.filename,-4,1)='.' THEN SUBSTR(r.filename,1,LENGTH(r.filename)-4)
                          WHEN SUBSTR(r.filename,-3,1)='.' THEN SUBSTR(r.filename,1,LENGTH(r.filename)-3)
-                         ELSE r.filename END)
+                         ELSE r.filename END
+                     OR rr.fs_stem = r.title)
             LEFT JOIN mame_machines mm
                 ON mm.name = r.title AND r.system IN ('arcade','mame2003-plus')
             WHERE r.system = ?
@@ -382,16 +384,27 @@ def generate_gamelist(
 
     for row in rows:
         stats["total"] += 1
-        filename   = str(row["filename"])
-        title      = str(row["title"])
-        stem       = Path(filename).stem
-        path_value = f"./{rom_path_prefix}{filename}"
+        filename     = str(row["filename"])
+        title        = str(row["title"])
+        stem         = Path(filename).stem
+        relative_path = Path(str(row["relative_path"]))
 
-        # Verify the ROM file exists.
-        rom_path = system_dir / filename
+        # Verify the ROM file exists using the full relative path from the DB
+        # (handles folder-based systems where the file lives in a subfolder).
+        rom_path = roms_root / relative_path
         if not rom_path.exists():
             stats["skipped_missing"] += 1
             continue
+
+        # Build the gamelist <path> value relative to system_dir so that
+        # folder-based systems (switch, ps2, etc.) reference the correct
+        # subfolder path (e.g. ./GameTitle/GameTitle.nsp) rather than the
+        # flat filename (./GameTitle.nsp which would not resolve in-emulator).
+        try:
+            rel_from_system = relative_path.relative_to(folder_name)
+        except ValueError:
+            rel_from_system = Path(filename)
+        path_value = f"./{rom_path_prefix}{rel_from_system}"
 
         # Resolve media from the media root (parent folder for subpath systems).
         media: dict[str, str | None] = {}
