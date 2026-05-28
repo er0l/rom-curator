@@ -95,6 +95,14 @@ INLINE_MAP: dict[str, str] = {
     "videos": "-video",
 }
 
+# Extensions that are genuine video formats.  Anything else found inside
+# videos/ is treated as a misplaced preview image and rerouted to
+# images/{title}-thumb{ext}.
+_VIDEO_EXTS: frozenset[str] = frozenset({
+    ".mp4", ".mkv", ".avi", ".mov", ".webm",
+    ".m4v", ".mpg", ".mpeg", ".ogv", ".flv", ".wmv",
+})
+
 # ------------------------------------------------------------------
 # Data types
 # ------------------------------------------------------------------
@@ -270,12 +278,57 @@ def run_normalize_media(
                         ))
 
             # ------------------------------------------------------------------
+            # Misplaced preview images in videos/
+            # Some scrapers deposit PNG/JPG screenshots in videos/ when no real
+            # video snap is available (e.g. "Banjo-Kazooie-video.png").
+            # Anything in videos/ that is NOT a recognised video extension
+            # belongs in images/ as a -thumb file.
+            # ------------------------------------------------------------------
+            from tools.clean_media import _strip_scraper_suffix
+            videos_dir = system_dir / "videos"
+            if videos_dir.is_dir():
+                images_dir = system_dir / "images"
+                for src_file in sorted(videos_dir.iterdir()):
+                    if not src_file.is_file():
+                        continue
+                    if (src_file.name in _IGNORED_FILENAMES
+                            or src_file.name.startswith(_IGNORED_PREFIXES)):
+                        continue
+                    if src_file.suffix.lower() in _VIDEO_EXTS:
+                        continue  # genuine video — leave alone
+
+                    # Non-video extension inside videos/ → reroute to images/-thumb
+                    base_stem = _strip_scraper_suffix(src_file.stem)
+                    title = _resolve_title(base_stem, stem_to_title, title_lower_to_title)
+                    summary.total_files += 1
+
+                    if title is None:
+                        summary.no_match += 1
+                        continue
+
+                    dst_file  = images_dir / f"{title}-thumb{src_file.suffix}"
+                    rel_src   = str(src_file.relative_to(roms_root))
+                    rel_dst   = str(dst_file.relative_to(roms_root))
+
+                    if dst_file.exists():
+                        summary.superseded += 1
+                        all_superseded.append(SupersededFile(
+                            src=src_file, dst=dst_file,
+                            rel_src=rel_src, rel_dst=rel_dst,
+                        ))
+                    else:
+                        summary.proposals += 1
+                        all_proposals.append(MoveProposal(
+                            src=src_file, dst=dst_file,
+                            rel_src=rel_src, rel_dst=rel_dst,
+                        ))
+
+            # ------------------------------------------------------------------
             # Inline rename: plain-stem files already in images/ and videos/.
             # images/1942.png  →  images/1942-image.png  (if dest doesn't exist)
             # videos/1942.mp4  →  videos/1942-video.mp4  (if dest doesn't exist)
             # ------------------------------------------------------------------
             if rename_inline:
-                from tools.clean_media import _strip_scraper_suffix
                 for folder_name, inline_suffix in INLINE_MAP.items():
                     folder_dir = system_dir / folder_name
                     if not folder_dir.is_dir():
