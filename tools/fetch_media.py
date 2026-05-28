@@ -7,7 +7,7 @@ and downloads it only if absent.
 Downloaded files are placed in the full-stem subfolder layout used by
 gen-gamelist:
 
-  boxart/{stem}.jpg        ← ROM cover image
+  images/{stem}.jpg        ← ROM cover image
   screenshots/{stem}.jpg   ← First screenshot (index 0 only)
 
 Existing files are never overwritten. A small delay between requests avoids
@@ -123,7 +123,7 @@ def fetch_media(
         cover_url = str(row["url_cover"] or "")
         if cover_url:
             stats.cover_available += 1
-            dest = system_dir / "boxart" / f"{stem}.jpg"
+            dest = system_dir / "images" / f"{stem}.jpg"
             if dest.exists():
                 stats.cover_present += 1
             else:
