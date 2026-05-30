@@ -505,8 +505,13 @@ def run_explain(config: dict[str, object], name: str, *, systems: list[str] | No
     plan = _create_configured_export_plan(config, name, systems=systems, year_from=year_from, year_to=year_to, mame_versions=mame_versions)
     metadata_count, metadata_size = scan_metadata_stats(plan)
     mappings = _load_configured_mappings(config)
+    roms_root = Path(str(config.get("paths", {}).get("roms", ""))).expanduser()
     active = set(plan.nas_paths.keys())
-    excluded = sorted(s for s in mappings if s not in active)
+    excluded = sorted(
+        s for s in mappings
+        if s not in active
+        and (roms_root / str(mappings[s].get("nas", s) if isinstance(mappings[s], dict) else s)).is_dir()
+    )
     print_export_plan(plan, metadata_count=metadata_count, metadata_size=metadata_size, excluded_systems=excluded)
     return plan
 
