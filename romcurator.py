@@ -85,9 +85,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "explain":
             run_explain(config, args.name, systems=_parse_systems(args.systems), year_from=args.year_from, year_to=args.year_to, mame_versions=_parse_systems(getattr(args, "mame_versions", None)))
         elif args.command == "build":
-            run_build(config, args.name, systems=_parse_systems(args.systems), year_from=args.year_from, year_to=args.year_to, execute=args.execute, rebuild=args.rebuild, yes=args.yes, mame_versions=_parse_systems(getattr(args, "mame_versions", None)))
+            run_build(config, args.name, systems=_parse_systems(args.systems), year_from=args.year_from, year_to=args.year_to, execute=args.execute, rebuild=args.rebuild, yes=args.yes, mame_versions=_parse_systems(getattr(args, "mame_versions", None)), with_metadata=args.with_metadata)
         elif args.command == "sync":
-            run_sync(config, args.name, systems=_parse_systems(args.systems), year_from=args.year_from, year_to=args.year_to, execute=args.execute, prune=args.prune, yes=args.yes, mame_versions=_parse_systems(getattr(args, "mame_versions", None)))
+            run_sync(config, args.name, systems=_parse_systems(args.systems), year_from=args.year_from, year_to=args.year_to, execute=args.execute, prune=args.prune, yes=args.yes, mame_versions=_parse_systems(getattr(args, "mame_versions", None)), with_metadata=args.with_metadata)
         elif args.command == "profile-add":
             run_profile_modify(config, args.name, add=_parse_systems(args.systems) or [], remove=[])
         elif args.command == "profile-remove":
@@ -293,6 +293,7 @@ def build_parser() -> argparse.ArgumentParser:
     build_parser.add_argument("--rebuild", action="store_true", help="Delete this profile export before building")
     build_parser.add_argument("--yes", action="store_true", help="Confirm destructive rebuild behavior")
     build_parser.add_argument("--mame-versions", metavar="VERSION,...", dest="mame_versions", help="Restrict arcade ROMs to these MAME version romsets, comma-separated  e.g. mame2003,mame2003-plus")
+    build_parser.add_argument("--with-metadata", action="store_true", dest="with_metadata", help="Include matching images, videos, and gamelist.xml in the manifest alongside ROMs")
     sync_parser = subparsers.add_parser("sync", help="Build export and optionally prune stale exported files")
     sync_parser.add_argument("name", help="Profile name, for example r36s")
     sync_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only sync these systems, comma-separated  e.g. gba,snes,nes")
@@ -302,6 +303,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync_parser.add_argument("--prune", action="store_true", help="Remove stale files from this profile export")
     sync_parser.add_argument("--yes", action="store_true", help="Confirm destructive prune behavior")
     sync_parser.add_argument("--mame-versions", metavar="VERSION,...", dest="mame_versions", help="Restrict arcade ROMs to these MAME version romsets, comma-separated  e.g. mame2003,mame2003-plus")
+    sync_parser.add_argument("--with-metadata", action="store_true", dest="with_metadata", help="Include matching images, videos, and gamelist.xml in the manifest alongside ROMs")
     romm_sync_parser = subparsers.add_parser("romm-sync", help="Sync ROMM metadata into inventory.sqlite (name, rating, year, genres, summary, developer, publisher, cover/screenshot URLs)")
     romm_sync_parser.add_argument("--reset", action="store_true", help="Clear romm_roms table before syncing (full re-sync)")
     arcade_import_parser = subparsers.add_parser("arcade-import", help="Import MAME XML and classify arcade ROMs")
@@ -505,18 +507,18 @@ def run_explain(config: dict[str, object], name: str, *, systems: list[str] | No
     return plan
 
 
-def run_build(config: dict[str, object], name: str, *, systems: list[str] | None = None, year_from: int | None = None, year_to: int | None = None, execute: bool, rebuild: bool, yes: bool, mame_versions: list[str] | None = None):
+def run_build(config: dict[str, object], name: str, *, systems: list[str] | None = None, year_from: int | None = None, year_to: int | None = None, execute: bool, rebuild: bool, yes: bool, mame_versions: list[str] | None = None, with_metadata: bool = False):
     plan = _create_configured_export_plan(config, name, systems=systems, year_from=year_from, year_to=year_to, mame_versions=mame_versions)
     print_export_plan(plan)
-    result = execute_export_plan(plan, dry_run=not execute, rebuild=rebuild, yes=yes)
+    result = execute_export_plan(plan, dry_run=not execute, rebuild=rebuild, yes=yes, with_metadata=with_metadata)
     print_export_result(result)
     return result
 
 
-def run_sync(config: dict[str, object], name: str, *, systems: list[str] | None = None, year_from: int | None = None, year_to: int | None = None, execute: bool, prune: bool, yes: bool, mame_versions: list[str] | None = None):
+def run_sync(config: dict[str, object], name: str, *, systems: list[str] | None = None, year_from: int | None = None, year_to: int | None = None, execute: bool, prune: bool, yes: bool, mame_versions: list[str] | None = None, with_metadata: bool = False):
     plan = _create_configured_export_plan(config, name, systems=systems, year_from=year_from, year_to=year_to, mame_versions=mame_versions)
     print_export_plan(plan)
-    result = execute_export_plan(plan, dry_run=not execute, prune=prune, yes=yes)
+    result = execute_export_plan(plan, dry_run=not execute, prune=prune, yes=yes, with_metadata=with_metadata)
     print_export_result(result)
     return result
 

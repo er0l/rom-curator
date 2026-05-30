@@ -16,6 +16,7 @@ instead of walking a directory of hardlinks.
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -77,6 +78,7 @@ class ExportPlan:
     # Populated by create_export_plan — used by execute_export_plan to write manifests.
     nas_paths: dict[str, str] = field(default_factory=dict)      # system → NAS folder (may be subpath)
     target_aliases: dict[str, str] = field(default_factory=dict) # system → device folder name
+    roms_root: Path | None = None                                 # set by create_export_plan; used by _collect_metadata
 
     @property
     def total_size(self) -> int:
@@ -92,6 +94,7 @@ class ExportResult:
     pruned: int         # number of stale .files removed (prune mode)
     dry_run: bool
     export_root: Path
+    metadata_files: int = 0  # media + gamelist.xml paths added via --with-metadata
 
 
 def create_export_plan(
@@ -170,6 +173,7 @@ def create_export_plan(
     }
     # Store on plan so execute_export_plan can write accurate manifest metadata.
     plan.nas_paths = {s: _nas_paths.get(s, s) for s in systems}
+    plan.roms_root = _roms_root
 
     # Folder-based systems store each game as a subfolder (e.g. scummvm, dos, windows).
     # The export unit is the whole subfolder; all files within it are hardlinked together.
@@ -345,6 +349,7 @@ def execute_export_plan(
     rebuild: bool = False,
     prune: bool = False,
     yes: bool = False,
+    with_metadata: bool = False,
 ) -> ExportResult:
     """Write per-system ``.files`` manifests and a ``manifest.json`` index.
 
@@ -364,31 +369,19 @@ def execute_export_plan(
         longer in the current plan.  Requires ``--yes``.
     yes:
         Must be True when ``prune`` is set.
+    with_metadata:
+        When True, scan each system's NAS media folders and add matching
+        image/video/gamelist.xml paths to the ``.files`` manifests alongside
+        ROM entries.  Only files whose title or filename stem matches an
+        exported ROM are included.  The NAS scan is read-only and runs even
+        during a dry run so the count is visible in the preview.
     """
     if prune and not yes:
         raise ValueError("--prune requires --yes")
 
-    if dry_run:
-        return ExportResult(
-            planned=len(plan.items),
-            written=0,
-            skipped_existing=0,
-            conflicts=0,
-            pruned=0,
-            dry_run=True,
-            export_root=plan.export_root,
-        )
-
-    plan.export_root.mkdir(parents=True, exist_ok=True)
-
-    if rebuild and plan.export_root.exists():
-        for existing in plan.export_root.glob("*.files"):
-            existing.unlink()
-        manifest_file = plan.export_root / "manifest.json"
-        if manifest_file.exists():
-            manifest_file.unlink()
-
     # Group items by (system, target_alias) — derive relative paths from destination.
+    # Built before the dry-run early return so the metadata scan (below) can run
+    # even in preview mode and report the file count.
     system_files: dict[str, list[str]] = defaultdict(list)
     system_alias: dict[str, str] = {}  # system → device_folder
 
@@ -399,6 +392,33 @@ def execute_export_plan(
             rel = item.destination.name
         system_files[item.system].append(rel)
         system_alias[item.system] = item.target_system
+
+    # Gather matching metadata (images, videos, gamelist.xml) for exported titles.
+    # This is a read-only NAS scan — safe to run even during a dry run.
+    metadata_count = 0
+    if with_metadata and plan.roms_root is not None:
+        metadata_count = _collect_metadata(plan, system_files)
+
+    if dry_run:
+        return ExportResult(
+            planned=len(plan.items),
+            written=0,
+            skipped_existing=0,
+            conflicts=0,
+            pruned=0,
+            dry_run=True,
+            export_root=plan.export_root,
+            metadata_files=metadata_count,
+        )
+
+    plan.export_root.mkdir(parents=True, exist_ok=True)
+
+    if rebuild and plan.export_root.exists():
+        for existing in plan.export_root.glob("*.files"):
+            existing.unlink()
+        manifest_file = plan.export_root / "manifest.json"
+        if manifest_file.exists():
+            manifest_file.unlink()
 
     # Write per-system .files (sorted, deduplicated).
     written = 0
@@ -421,6 +441,8 @@ def execute_export_plan(
         "built_at": datetime.now(timezone.utc).isoformat(),
         "systems": systems_meta,
     }
+    if with_metadata:
+        manifest["with_metadata"] = True
     (plan.export_root / "manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
@@ -443,6 +465,7 @@ def execute_export_plan(
         pruned=pruned,
         dry_run=False,
         export_root=plan.export_root,
+        metadata_files=metadata_count,
     )
 
 
@@ -500,14 +523,20 @@ def print_export_plan(plan: ExportPlan) -> None:
 def print_export_result(result: ExportResult) -> None:
     mode = "dry run" if result.dry_run else "executed"
     print(f"Build {mode}: {result.export_root}")
-    print(f"Planned: {result.planned}")
+    print(f"Planned: {result.planned} ROM(s)")
+    if result.metadata_files:
+        if result.dry_run:
+            print(f"Metadata: {result.metadata_files} image/video/gamelist file(s) found (will be added to manifest)")
+        else:
+            print(f"Metadata: {result.metadata_files} image/video/gamelist file(s) added to manifest")
     if result.dry_run:
         print("Run with --execute to write the manifest files.")
     else:
         print(f"Written: {result.written} manifest entries across {result.export_root}/")
         if result.pruned:
             print(f"Pruned: {result.pruned} stale system manifest(s)")
-        print("Run 'rom-rsync <profile> --dest <device>' to sync ROMs to a device.")
+        what = "ROMs and media" if result.metadata_files else "ROMs"
+        print(f"Run 'rom-rsync <profile> --dest <device>' to sync {what} to a device.")
 
 
 def _skip_reason(row, preferred_regions: list[str], selection: dict[str, object]) -> str | None:
@@ -767,3 +796,170 @@ def _format_bytes(value: int) -> str:
             return f"{size:.1f}{unit}"
         size /= 1024
     return f"{size:.1f}P"
+
+
+# ---------------------------------------------------------------------------
+# Metadata collection for --with-metadata
+# ---------------------------------------------------------------------------
+
+# Media subfolders scanned for assets (mirrors normalize-media FOLDER_MAP plus
+# the canonical Batocera output folders).
+_MEDIA_SUBDIRS: tuple[str, ...] = (
+    "images", "videos",
+    "boxart", "wheel", "marquee", "logos",
+    "snap", "screenshots", "fanarts", "flyer", "cartart", "backcovers", "mixart",
+)
+
+# Scraper suffixes appended between title and extension in the Batocera convention
+# (e.g. "Super Mario World-image.png", "1942-marquee.png").
+_MEDIA_SUFFIXES: frozenset[str] = frozenset({
+    "-image", "-thumb", "-marquee", "-video",
+    "-fanart", "-cartart", "-backcover", "-screenshot", "-snap",
+})
+
+# Matches one trailing [bracket] group (Switch title IDs, version tags, etc.)
+_TRAILING_BRACKET: re.Pattern[str] = re.compile(r"\s*\[[^\]]*\]$")
+
+
+def _bare_title(title: str) -> str:
+    """Strip all trailing [bracket] tags from *title* (lowercased).
+
+    Used to match Switch folder names like "1-2-Switch [01000320000CC000]"
+    against media files named "1-2-Switch-marquee.png".
+    """
+    t = title.lower()
+    while True:
+        stripped = _TRAILING_BRACKET.sub("", t).strip()
+        if stripped == t:
+            return t
+        t = stripped
+
+
+def _media_matches(
+    file_stem: str,
+    exported_titles: set[str],
+    exported_stems: set[str],
+) -> bool:
+    """Return True when *file_stem* corresponds to an exported ROM.
+
+    Handles three naming conventions:
+    - Plain-stem style: file stem equals the ROM filename stem verbatim
+      (e.g. scraper named the file "Super Mario World (USA)").
+    - Suffix style: "Title-suffix.ext" — strip known suffix and compare the
+      base against exported titles (e.g. "Super Mario World-image.png").
+    - Bare title style: file stem equals the canonical title with no suffix
+      (e.g. ROMM cover saved as "Super Mario World.jpg").
+    """
+    stem_l = file_stem.lower()
+    if stem_l in exported_stems:
+        return True
+    for suf in _MEDIA_SUFFIXES:
+        if stem_l.endswith(suf):
+            if stem_l[: -len(suf)] in exported_titles:
+                return True
+    return stem_l in exported_titles
+
+
+def _collect_metadata(
+    plan: "ExportPlan",
+    system_files: dict[str, list[str]],
+) -> int:
+    """Scan NAS media folders and append matching paths to *system_files*.
+
+    For each media root (the first path component of a system's NAS folder),
+    this function:
+
+    1. Finds the non-subpath system that **owns** that root.  For example,
+       both ``arcade`` (nas: ``arcade``) and ``mame2003-plus``
+       (nas: ``arcade/mame2003-plus``) share the root ``arcade/``.  The owner
+       is ``arcade`` because its NAS path is a single component with no slash.
+       Subpath-only profiles (no parent system in the plan) are skipped.
+    2. Collects all exported titles and ROM filename stems for every system
+       under that root (ROMs from both ``arcade`` and ``mame2003-plus`` get
+       their media looked up in ``arcade/images/``).
+    3. Scans each media subfolder and ``gamelist.xml`` for matching files.
+    4. Appends the relative paths (e.g. ``images/1942-marquee.png``) to the
+       owner system's entry in *system_files*.
+
+    For folder-based systems such as Switch whose subfolder names include
+    bracket tags (e.g. ``"1-2-Switch [01000320000CC000]"``), bare title
+    variants with the brackets stripped are also checked so that media files
+    named ``"1-2-Switch-marquee.png"`` still match.
+
+    Returns the total number of metadata paths added.
+    """
+    roms_root = plan.roms_root
+    assert roms_root is not None
+
+    # Map media_root → the non-subpath system that owns it.
+    # A system "owns" a root when its full NAS path contains no slash
+    # (e.g. "arcade" owns root "arcade"; "arcade/mame2003-plus" does not).
+    root_owner: dict[str, str] = {}
+    for sys_name in system_files:
+        nas = plan.nas_paths.get(sys_name, sys_name)
+        if "/" not in nas:
+            root_owner[nas] = sys_name
+
+    # Group all exported items by their media root.
+    root_items: dict[str, list] = defaultdict(list)
+    for item in plan.items:
+        nas = plan.nas_paths.get(item.system, item.system)
+        root = nas.split("/", 1)[0]
+        root_items[root].append(item)
+
+    total_added = 0
+
+    for media_root, items in root_items.items():
+        owner = root_owner.get(media_root)
+        if owner is None:
+            # No non-subpath system owns this root — media can't be added
+            # because subpath .files are relative to a deeper directory.
+            continue
+
+        system_dir = roms_root / media_root
+        if not system_dir.is_dir():
+            continue
+
+        # Build match sets: exported_titles for suffix-style matching,
+        # exported_stems for plain-stem matching.
+        # Also add bare variants (bracket tags stripped) to handle Switch-style
+        # folder names like "1-2-Switch [01000320000CC000]".
+        exported_titles: set[str] = set()
+        exported_stems:  set[str] = set()
+        for item in items:
+            t = item.title.lower()
+            exported_titles.add(t)
+            bare_t = _bare_title(t)
+            if bare_t != t:
+                exported_titles.add(bare_t)
+
+            s = item.source.stem.lower()
+            exported_stems.add(s)
+            bare_s = _bare_title(s)
+            if bare_s != s:
+                exported_stems.add(bare_s)
+
+        existing: set[str] = set(system_files[owner])
+
+        for subdir in _MEDIA_SUBDIRS:
+            media_dir = system_dir / subdir
+            if not media_dir.is_dir():
+                continue
+            for f in sorted(media_dir.iterdir()):
+                if not f.is_file():
+                    continue
+                if not _media_matches(f.stem, exported_titles, exported_stems):
+                    continue
+                rel = f"{subdir}/{f.name}"
+                if rel not in existing:
+                    system_files[owner].append(rel)
+                    existing.add(rel)
+                    total_added += 1
+
+        # Always include gamelist.xml when it exists.
+        gamelist = system_dir / "gamelist.xml"
+        if gamelist.exists() and "gamelist.xml" not in existing:
+            system_files[owner].append("gamelist.xml")
+            total_added += 1
+
+    return total_added
