@@ -10,7 +10,7 @@ import sys
 
 from core.compat import load_compat_lists
 from core.compat_import import run_compat_import
-from core.exporter import create_export_plan, execute_export_plan, print_export_plan, print_export_result
+from core.exporter import create_export_plan, execute_export_plan, print_export_plan, print_export_result, scan_metadata_stats
 from core.inventory import run_inventory
 from core.mappings import (
     load_layouts,
@@ -503,7 +503,11 @@ def run_profile_modify(config: dict[str, object], name: str, *, add: list[str], 
 
 def run_explain(config: dict[str, object], name: str, *, systems: list[str] | None = None, year_from: int | None = None, year_to: int | None = None, mame_versions: list[str] | None = None):
     plan = _create_configured_export_plan(config, name, systems=systems, year_from=year_from, year_to=year_to, mame_versions=mame_versions)
-    print_export_plan(plan)
+    metadata_count, metadata_size = scan_metadata_stats(plan)
+    mappings = _load_configured_mappings(config)
+    active = set(plan.nas_paths.keys())
+    excluded = sorted(s for s in mappings if s not in active)
+    print_export_plan(plan, metadata_count=metadata_count, metadata_size=metadata_size, excluded_systems=excluded)
     return plan
 
 

@@ -469,7 +469,13 @@ def execute_export_plan(
     )
 
 
-def print_export_plan(plan: ExportPlan) -> None:
+def print_export_plan(
+    plan: ExportPlan,
+    *,
+    metadata_count: int = 0,
+    metadata_size: int = 0,
+    excluded_systems: list[str] | None = None,
+) -> None:
     console = Console() if Console else None
     rows = [
         (
@@ -507,7 +513,16 @@ def print_export_plan(plan: ExportPlan) -> None:
             table.add_row(*row)
         console.print(table)
         console.print(f"Planned entries: {len(plan.items)}")
-        console.print(f"Logical size: {_format_bytes(plan.total_size)}")
+        console.print(f"Logical size:    {_format_bytes(plan.total_size)}")
+        if metadata_count:
+            console.print(
+                f"Metadata:        {metadata_count:,} file(s)  ·  {_format_bytes(metadata_size)}"
+                f"  [dim](pass --with-metadata to include in manifest)[/dim]"
+            )
+            console.print(f"Space required:  {_format_bytes(plan.total_size + metadata_size)}  [dim](ROMs + metadata)[/dim]")
+        if excluded_systems:
+            console.print(f"\n[bold]Not in profile[/bold] ({len(excluded_systems)}):")
+            console.print("  " + _wrap_systems(excluded_systems, width=100), style="dim")
         return
 
     print(f"Profile: {plan.profile_name}")
@@ -517,7 +532,13 @@ def print_export_plan(plan: ExportPlan) -> None:
     for row in rows:
         print(" | ".join(row))
     print(f"Planned entries: {len(plan.items)}")
-    print(f"Logical size: {_format_bytes(plan.total_size)}")
+    print(f"Logical size:    {_format_bytes(plan.total_size)}")
+    if metadata_count:
+        print(f"Metadata:        {metadata_count:,} file(s)  ·  {_format_bytes(metadata_size)}  (pass --with-metadata to include in manifest)")
+        print(f"Space required:  {_format_bytes(plan.total_size + metadata_size)}  (ROMs + metadata)")
+    if excluded_systems:
+        print(f"\nNot in profile ({len(excluded_systems)}):")
+        print(_wrap_systems(excluded_systems, indent="  ", width=100))
 
 
 def print_export_result(result: ExportResult) -> None:
@@ -858,6 +879,106 @@ def _media_matches(
             if stem_l[: -len(suf)] in exported_titles:
                 return True
     return stem_l in exported_titles
+
+
+def scan_metadata_stats(plan: ExportPlan) -> tuple[int, int]:
+    """Scan NAS media folders and return ``(file_count, total_size_bytes)``.
+
+    Uses the same matching logic as :func:`_collect_metadata` but never
+    modifies any data structures — purely read-only.  Called by ``explain``
+    so the user can see how much extra space metadata would require before
+    committing to a build with ``--with-metadata``.
+
+    Returns ``(0, 0)`` when ``plan.roms_root`` is ``None``.
+    """
+    if plan.roms_root is None:
+        return (0, 0)
+
+    roms_root = plan.roms_root
+
+    root_owner: dict[str, str] = {}
+    for sys_name in plan.nas_paths:
+        nas = plan.nas_paths[sys_name]
+        if "/" not in nas:
+            root_owner[nas] = sys_name
+
+    root_items: dict[str, list] = defaultdict(list)
+    for item in plan.items:
+        nas = plan.nas_paths.get(item.system, item.system)
+        root = nas.split("/", 1)[0]
+        root_items[root].append(item)
+
+    total_count = 0
+    total_size  = 0
+
+    for media_root, items in root_items.items():
+        owner = root_owner.get(media_root)
+        if owner is None:
+            continue
+
+        system_dir = roms_root / media_root
+        if not system_dir.is_dir():
+            continue
+
+        exported_titles: set[str] = set()
+        exported_stems:  set[str] = set()
+        for item in items:
+            t = item.title.lower()
+            exported_titles.add(t)
+            bare_t = _bare_title(t)
+            if bare_t != t:
+                exported_titles.add(bare_t)
+            s = item.source.stem.lower()
+            exported_stems.add(s)
+            bare_s = _bare_title(s)
+            if bare_s != s:
+                exported_stems.add(bare_s)
+
+        seen: set[str] = set()
+
+        for subdir in _MEDIA_SUBDIRS:
+            media_dir = system_dir / subdir
+            if not media_dir.is_dir():
+                continue
+            for f in sorted(media_dir.iterdir()):
+                if not f.is_file():
+                    continue
+                if not _media_matches(f.stem, exported_titles, exported_stems):
+                    continue
+                rel = f"{subdir}/{f.name}"
+                if rel not in seen:
+                    seen.add(rel)
+                    total_count += 1
+                    try:
+                        total_size += f.stat().st_size
+                    except OSError:
+                        pass
+
+        gamelist = system_dir / "gamelist.xml"
+        if gamelist.exists() and "gamelist.xml" not in seen:
+            total_count += 1
+            try:
+                total_size += gamelist.stat().st_size
+            except OSError:
+                pass
+
+    return (total_count, total_size)
+
+
+def _wrap_systems(systems: list[str], *, indent: str = "", width: int = 100) -> str:
+    """Return *systems* formatted as a wrapped, comma-separated string."""
+    lines: list[str] = []
+    current = indent
+    for i, name in enumerate(systems):
+        part = name if i == len(systems) - 1 else name + ", "
+        if current != indent and len(current) + len(part) > width:
+            lines.append(current.rstrip(", "))
+            current = indent + part
+        else:
+            current += part
+    if current.strip():
+        lines.append(current.rstrip(", "))
+    return "\n".join(lines)
 
 
 def _collect_metadata(
