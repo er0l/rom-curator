@@ -220,6 +220,15 @@ def main(argv: list[str] | None = None) -> int:
                 roms_root = Path(str(config.get("paths", {}).get("roms", ""))).expanduser()
                 systems_arg = sorted(d.name for d in roms_root.iterdir() if d.is_dir()) if roms_root.exists() else []
             run_fetch_media(config, systems_arg, mappings, execute=args.execute)
+        elif args.command == "zip-check":
+            from tools.zip_check import run_zip_check
+            mappings = _load_configured_mappings(config)
+            run_zip_check(
+                config,
+                mappings,
+                systems=_parse_systems(getattr(args, "systems", None)),
+                verbose=args.verbose,
+            )
         elif args.command == "compat-import":
             mappings_dir = _load_configured_mappings_dir(config)
             system_overrides = {}
@@ -387,6 +396,10 @@ def build_parser() -> argparse.ArgumentParser:
     dat_check_parser.add_argument("dats", nargs="+", metavar="DAT", help="One or more MAME XML DAT files (.xml, .dat, or .zip containing one)")
     dat_check_parser.add_argument("--detail", action="store_true", help="Print files in folder not found in any DAT")
     dat_check_parser.add_argument("--parents-only", dest="parents_only", action="store_true", help="Only match parent ROMs (ignore clones)")
+
+    zip_check_parser = subparsers.add_parser("zip-check", help="Check that ZIP archives contain files matching the expected system extensions (e.g. no .gbc inside gb/)")
+    zip_check_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only check these systems, comma-separated  (default: all systems with extension rules)")
+    zip_check_parser.add_argument("--verbose", action="store_true", help="Also print systems with no issues")
 
     compat_import_parser = subparsers.add_parser("compat-import", help="Import R36S/RK3326 compatibility xlsx lists into compat YAML files")
     compat_import_parser.add_argument("files", nargs="+", metavar="XLSX", help="One or more xlsx compatibility list files to import")

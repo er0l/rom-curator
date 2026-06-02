@@ -54,14 +54,17 @@ astrocde:
 
 atari2600:
   nas: atari2600
+  extensions: [a26]
   display: {aspect: "4:3", orientation: landscape}
 
 atari5200:
   nas: atari5200
+  extensions: [a52]
   display: {aspect: "4:3", orientation: landscape}
 
 atari7800:
   nas: atari7800
+  extensions: [a78]
   display: {aspect: "4:3", orientation: landscape}
 
 atari800:
@@ -140,10 +143,12 @@ easyrpg:
 
 famicom:
   nas: famicom
+  extensions: [nes, unf, unif]
   display: {aspect: "4:3", orientation: landscape}
 
 fds:
   nas: fds
+  extensions: [fds]
   display: {aspect: "4:3", orientation: landscape}
 
 fmtownsux:
@@ -161,18 +166,22 @@ gamecube:
 
 gamegear:
   nas: gamegear
+  extensions: [gg]
   display: {aspect: "10:9", orientation: landscape}
 
 gb:
   nas: gb
+  extensions: [gb]
   display: {aspect: "10:9", orientation: landscape}
 
 gba:
   nas: gba
+  extensions: [gba, agb, mb]
   display: {aspect: "3:2", orientation: landscape}
 
 gbc:
   nas: gbc
+  extensions: [gbc, sgb]
   display: {aspect: "10:9", orientation: landscape}
 
 intellivision:
@@ -193,6 +202,7 @@ lowresnx:
 
 lynx:
   nas: lynx
+  extensions: [lnx, lyx]
   display: {aspect: "3:2", orientation: landscape}
 
 macintosh:
@@ -204,6 +214,7 @@ mame2003-plus:
 
 mastersystem:
   nas: mastersystem
+  extensions: [sms]
   display: {aspect: "4:3", orientation: landscape}
 
 megacd:
@@ -214,6 +225,7 @@ megacd:
 
 megadrive:
   nas: megadrive
+  extensions: [md, gen, smd]
   display: {aspect: "4:3", orientation: landscape}
 
 megaduck:
@@ -241,6 +253,7 @@ msx2plus:
 
 n64:
   nas: n64
+  extensions: [z64, n64, v64]
   display: {aspect: "4:3", orientation: landscape}
 
 n64dd:
@@ -256,6 +269,7 @@ naomi2:
 
 nds:
   nas: nds
+  extensions: [nds, dsi]
   display: {aspect: "4:3", orientation: landscape}
 
 neogeo:
@@ -271,14 +285,17 @@ ngage:
 
 nes:
   nas: nes
+  extensions: [nes, unf, unif]
   display: {aspect: "4:3", orientation: landscape}
 
 ngp:
   nas: ngp
+  extensions: [ngp]
   display: {aspect: "1:1", orientation: landscape}
 
 ngpc:
   nas: ngpc
+  extensions: [ngc, ngpc]
   display: {aspect: "1:1", orientation: landscape}
 
 odyssey:
@@ -301,6 +318,7 @@ pc98:
 
 pcengine:
   nas: pcengine
+  extensions: [pce]
   display: {aspect: "4:3", orientation: landscape}
 
 pcenginecd:
@@ -322,6 +340,7 @@ plus4:
 
 pokemini:
   nas: pokemini
+  extensions: [min]
 
 ports:
   nas: ports
@@ -368,6 +387,7 @@ scummvm:
 
 sega32x:
   nas: sega32x
+  extensions: [32x]
   display: {aspect: "4:3", orientation: landscape}
 
 sg1000:
@@ -375,9 +395,11 @@ sg1000:
 
 sgb:
   nas: sgb
+  extensions: [gb, sgb]
 
 snes:
   nas: snes
+  extensions: [smc, sfc, fig, bs, swc]
   display: {aspect: "4:3", orientation: landscape}
 
 solarus:
@@ -396,6 +418,7 @@ supergrafx:
 
 supervision:
   nas: supervision
+  extensions: [sv]
 
 switch:
   folder_based: true
@@ -422,6 +445,7 @@ videopac:
 
 virtualboy:
   nas: virtualboy
+  extensions: [vb, vboy]
   display: {aspect: "12:7", orientation: landscape}
 
 vmu:
@@ -445,10 +469,12 @@ wolf:
 
 wonderswan:
   nas: wonderswan
+  extensions: [ws]
   display: {orientation: mixed}
 
 wonderswancolor:
   nas: wonderswancolor
+  extensions: [wsc, ws]
   display: {orientation: mixed}
 
 x1:
