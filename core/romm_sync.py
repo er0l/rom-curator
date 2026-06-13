@@ -285,7 +285,7 @@ def _fetch_page(
 ) -> tuple[list, int | None]:
     r = client.get(
         f"{romm_url}/api/roms",
-        params={"limit": limit, "offset": offset, "order_by": "id", "order_dir": "asc"},
+        params={"limit": limit, "offset": offset, "order_by": "id", "order_dir": "asc", "with_siblings": "true"},
         timeout=60,
     )
     if r.status_code == 401:
