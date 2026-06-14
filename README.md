@@ -167,6 +167,26 @@ The matrix maps canonical ROM Curator names to target ecosystem folders:
 - R36S/R39 Max
 - Batocera
 
+#### System extension rules
+
+Cartridge-based systems can declare an `extensions` list in `systems.yaml`:
+
+```yaml
+gb:
+  nas: gb
+  extensions: [gb]
+gbc:
+  nas: gbc
+  extensions: [gbc, sgb]
+gba:
+  nas: gba
+  extensions: [gba, agb, mb]
+```
+
+This powers the `zip-check` command (see below), which opens ZIP files in each
+system folder and flags any inner file whose extension unambiguously belongs to
+a different system — catching misplaced ROMs such as `.gbc` files inside `gb/`.
+
 #### Subpath NAS folders
 
 A system's `nas:` entry in `systems.yaml` can be a subpath like
@@ -231,7 +251,10 @@ python3 romcurator.py explain r36s
 ```
 
 Shows a table per system: seen, selected, and how many were skipped by each
-filter (region, beta, compat, controls, etc.).  Good first check before
+filter (region, beta, compat, controls, etc.).  Also shows a metadata preview
+(how many image/video/gamelist files would be included with `--with-metadata`
+and their total size), a "Space required" total, and a list of systems that
+exist on disk but are not yet in the profile.  Good first check before
 committing to a build.
 
 **Step 2 — Dry-run build** (still nothing written):
@@ -251,6 +274,20 @@ python3 romcurator.py build r36s --execute
 
 Writes the manifest files (see below).  Safe to re-run after profile changes
 — existing files are overwritten in place.
+
+Add `--with-metadata` to also include matching images, videos, and
+`gamelist.xml` in the manifest alongside the ROM entries, so `rom-rsync`
+transfers them in the same pass:
+
+```bash
+python3 romcurator.py build r36s --with-metadata --execute
+python3 romcurator.py sync  r36s --with-metadata --execute
+```
+
+The metadata scan is read-only; the count and size are shown even in dry-run.
+Only files whose title or filename stem matches an exported ROM are included —
+orphaned media is excluded.  `explain` always shows the metadata preview so
+you can see the impact without running a full build.
 
 **Step 4 — Dry-run rsync** (shows what would transfer, device untouched):
 
@@ -760,8 +797,10 @@ python3 romcurator.py profile r36s
 python3 romcurator.py explain r36s
 python3 romcurator.py build r36s
 python3 romcurator.py build r36s --execute
+python3 romcurator.py build r36s --with-metadata --execute
 python3 romcurator.py build r36s --mame-versions mame2003,mame2003-plus --execute
 python3 romcurator.py sync r36s --execute --prune --yes
+python3 romcurator.py sync r36s --with-metadata --execute
 python3 romcurator.py romm-sync
 python3 romcurator.py romm-sync --reset
 python3 romcurator.py fetch-media
@@ -774,6 +813,9 @@ python3 romcurator.py gen-gamelist --systems snes,n64 --execute
 python3 romcurator.py gen-gamelist --execute
 python3 romcurator.py compat-import Dreamcast.xlsx Saturn.xlsx
 python3 romcurator.py compat-import *.xlsx --chip rk3326
+python3 romcurator.py zip-check
+python3 romcurator.py zip-check --systems gb,gbc,gba
+python3 romcurator.py zip-check --verbose
 python3 romcurator.py zip-roms
 python3 romcurator.py zip-roms --system gba --execute
 python3 romcurator.py dedup-roms
@@ -908,6 +950,7 @@ rom-curator/
 │   ├── fetch_media.py      ← download missing covers/screenshots from ROMM
 │   ├── gen_gamelist.py     ← generate gamelist.xml for EmulationStation
 │   ├── gen_m3u.py          ← generate .m3u playlists for multi-disc games
+│   ├── zip_check.py        ← validate ZIP contents match expected system extensions
 │   └── zip_roms.py         ← compress uncompressed ROMs to zip
 ├── mappings/
 │   ├── systems.yaml        ← canonical system → NAS folder name + display metadata
@@ -1064,6 +1107,11 @@ and `videos/` (e.g. `images/1942.png` → `images/1942-image.png`).
 `--clean-superseded` moves source files to the recycle bin when a
 suffix-style file for the same title already exists at the destination.
 
+**Misplaced preview images**: some scrapers deposit PNG screenshots into
+`videos/` (named `*-video.png`) instead of actual video files.
+`normalize-media` detects these by checking file extensions inside `videos/`
+and proposes moving them to `images/{title}-thumb.png`.
+
 Subpath systems (e.g. `--systems mame2003-plus`) resolve to the parent media
 folder (`arcade/`) automatically.
 
@@ -1139,6 +1187,41 @@ Disc naming patterns recognised by the parser:
 | Region before disc | `(NA - Disc 1)`, `(EU - Disc 2)` |
 | Disc before region | `(Disc 1 - EU)`, `(Disc 2 - English Patch)` |
 | Amiga / C64 / MSX style | `Disk 1`, `Disk A`, `Disk1`, `DiskA`, `Disk 0` |
+
+#### zip-check
+
+Verify that ZIP archives contain files matching the expected system extensions.
+Useful after bulk-importing ROMs to catch misplaced files (e.g. `.gbc` ROMs
+zipped into the `gb/` folder).
+
+```bash
+python3 romcurator.py zip-check                        # check all systems with extension rules
+python3 romcurator.py zip-check --systems gb,gbc,gba   # check specific systems
+python3 romcurator.py zip-check --verbose              # also show OK systems
+```
+
+For each ZIP file in a system folder, the tool opens the archive and checks
+every inner file's extension. It flags only **clear mismatches** — extensions
+that unambiguously identify a different system. Generic extensions (`.bin`,
+`.iso`) that appear in many systems are ignored to avoid false positives.
+
+Example output:
+
+```
+gb — 2 ZIP(s) with wrong-system content:
+  gb/Link's Awakening DX (USA).zip  [.gbc → gbc]
+  gb/Metroid II (USA).zip           [.gbc → gbc]
+
+Checked 3 systems, 847 ZIP files.
+2 ZIP(s) contain wrong-system files.
+```
+
+Extension rules are configured per system in `mappings/systems.yaml` via the
+`extensions:` key. Systems without an `extensions` list are skipped.
+Currently configured: `gb`, `gbc`, `gba`, `nes`, `famicom`, `fds`, `snes`,
+`n64`, `nds`, `gamegear`, `mastersystem`, `megadrive`, `sega32x`, `lynx`,
+`ngp`, `ngpc`, `wonderswan`, `wonderswancolor`, `virtualboy`, `pcengine`,
+`pokemini`, `atari2600`, `atari5200`, `atari7800`, `sgb`, `supervision`.
 
 #### Recycle bin
 
@@ -1332,6 +1415,3 @@ python3 romcurator.py folder-check /mnt/storage/roms/cps1 /mnt/storage/roms/arca
 
 Typical use: before consolidating separate sub-system folders (`cps1/`, `cps2/`, `neogeo/`) into a single `arcade/` folder, run `folder-check` on each to confirm all files are already present and flag any version mismatches.
 
-## Not Implemented Yet
-
-- `arcade_exclude_controls` has no effect until `arcade-import` is run from a full `mame -listxml` source — run `mame -listxml > mame_full.xml && python3 romcurator.py arcade-import --xml mame_full.xml --reset` to activate it
