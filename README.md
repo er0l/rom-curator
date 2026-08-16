@@ -813,6 +813,9 @@ python3 romcurator.py gen-gamelist --systems snes,n64 --execute
 python3 romcurator.py gen-gamelist --execute
 python3 romcurator.py compat-import Dreamcast.xlsx Saturn.xlsx
 python3 romcurator.py compat-import *.xlsx --chip rk3326
+python3 romcurator.py curate-report
+python3 romcurator.py curate-report --systems ps2,psp,switch
+python3 romcurator.py curate-report --rating-threshold 60 --limit 50
 python3 romcurator.py zip-check
 python3 romcurator.py zip-check --systems gb,gbc,gba
 python3 romcurator.py zip-check --verbose
@@ -932,6 +935,7 @@ rom-curator/
 │   ├── arcade.py           ← MAME XML parser, arcade sub-system classifier
 │   ├── compat.py           ← RK3326 compatibility list loader and filter
 │   ├── compat_import.py    ← xlsx compatibility list importer
+│   ├── curate_report.py    ← low-value ROM report using cached ROMM metadata
 │   ├── database.py         ← SQLite layer (roms, mame_machines, romm_roms)
 │   ├── dat_check.py        ← compare ROM folder against MAME XML DAT files
 │   ├── exporter.py         ← export plan, manifest generation, arcade dedup
@@ -1187,6 +1191,50 @@ Disc naming patterns recognised by the parser:
 | Region before disc | `(NA - Disc 1)`, `(EU - Disc 2)` |
 | Disc before region | `(Disc 1 - EU)`, `(Disc 2 - English Patch)` |
 | Amiga / C64 / MSX style | `Disk 1`, `Disk A`, `Disk1`, `DiskA`, `Disk 0` |
+
+#### curate-report
+
+Surface low-value ROMs by size using cached ROMM/IGDB metadata, to help
+shrink a large archive. **Read-only — no files are moved or modified.**
+
+```bash
+python3 romcurator.py curate-report                        # full sweep
+python3 romcurator.py curate-report --systems ps2,psp       # scoped, faster
+python3 romcurator.py curate-report --rating-threshold 60 --limit 50
+```
+
+For each system, every ROM/game is checked against `romm_roms` and flagged as
+a candidate when:
+
+| Reason | Meaning |
+|---|---|
+| `no ROMM match` | No `romm_roms` record at all for this file |
+| `unidentified` | ROMM has a record but could not match it to IGDB metadata |
+| `low rating (N)` | Identified with a real IGDB `total_rating` below `--rating-threshold` (default 50). `total_rating = 0` (ROMM's "no votes yet" placeholder) is never treated as a low score. |
+
+Candidates are listed largest-first per system (capped at `--limit`, default
+25) with a per-system subtotal and a grand total of potential space savings.
+
+**Folder-based systems** (switch, scummvm, dos, dreamcast, saturn, windows,
+megacd) are supported — each game's subfolder (ROM + updates/DLC) is grouped
+and summed as one item, and matched against ROMM by folder/title name rather
+than raw filename, since that's how ROMM stores `fs_name` for these platforms
+(the same approach `gen-gamelist` uses).
+
+**Arcade/MAME sub-systems** (`arcade`, `mame2003-plus`, `cps1`, `cps2`, `cps3`,
+`neogeo`, `naomi`, `naomi2`, `atomiswave`) are excluded from the default
+full sweep — MAME romsets have essentially no per-file ROMM/IGDB coverage, so
+every ROM would show `no ROMM match` regardless of actual quality. Pass
+`--systems arcade` explicitly to include them anyway (expect mostly noise).
+
+This is a **review list, not an auto-delete list** — IGDB rating reflects
+crowd opinion, not yours, and will flag genuinely good niche/import-only
+titles right alongside actual filler. Move entries you agree with to the
+recycle bin manually (or with `dedup-roms`/`zip-roms` workflows where
+applicable) after reviewing.
+
+Like `report`, output is saved to a timestamped file under `paths.reports`
+when configured.
 
 #### zip-check
 
