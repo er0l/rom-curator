@@ -220,6 +220,17 @@ def main(argv: list[str] | None = None) -> int:
                 roms_root = Path(str(config.get("paths", {}).get("roms", ""))).expanduser()
                 systems_arg = sorted(d.name for d in roms_root.iterdir() if d.is_dir()) if roms_root.exists() else []
             run_fetch_media(config, systems_arg, mappings, execute=args.execute)
+        elif args.command == "curate-report":
+            from core.curate_report import run_curate_report
+            mappings = _load_configured_mappings(config)
+            run_curate_report(
+                config,
+                mappings=mappings,
+                systems=_parse_systems(getattr(args, "systems", None)),
+                rating_threshold=args.rating_threshold,
+                limit_per_system=args.limit,
+                min_size_mb=args.min_size_mb,
+            )
         elif args.command == "zip-check":
             from tools.zip_check import run_zip_check
             mappings = _load_configured_mappings(config)
@@ -396,6 +407,12 @@ def build_parser() -> argparse.ArgumentParser:
     dat_check_parser.add_argument("dats", nargs="+", metavar="DAT", help="One or more MAME XML DAT files (.xml, .dat, or .zip containing one)")
     dat_check_parser.add_argument("--detail", action="store_true", help="Print files in folder not found in any DAT")
     dat_check_parser.add_argument("--parents-only", dest="parents_only", action="store_true", help="Only match parent ROMs (ignore clones)")
+
+    curate_report_parser = subparsers.add_parser("curate-report", help="Surface low-value/unidentified ROMs by size using cached ROMM metadata, to help shrink a large archive")
+    curate_report_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only analyse these systems, comma-separated  (default: all except arcade/MAME sub-systems and folder-based systems)")
+    curate_report_parser.add_argument("--rating-threshold", type=float, default=50.0, metavar="N", help="Flag identified ROMs with IGDB total_rating below this value  (default: 50)")
+    curate_report_parser.add_argument("--limit", type=int, default=25, metavar="N", help="Max candidates shown per system, sorted by size descending  (default: 25)")
+    curate_report_parser.add_argument("--min-size-mb", type=float, default=0.0, metavar="MB", help="Ignore files smaller than this size  (default: 0, no filter)")
 
     zip_check_parser = subparsers.add_parser("zip-check", help="Check that ZIP archives contain files matching the expected system extensions (e.g. no .gbc inside gb/)")
     zip_check_parser.add_argument("--systems", metavar="SYSTEM,...", help="Only check these systems, comma-separated  (default: all systems with extension rules)")
