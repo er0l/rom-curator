@@ -40,6 +40,15 @@ _LOW_SIGNAL_SYSTEMS: frozenset[str] = frozenset({
     "neogeo", "naomi", "naomi2", "atomiswave",
 })
 
+# Companion/cuesheet/playlist files that describe or accompany a primary disc
+# image — never an independent game on their own.  Same list dedup_roms.py
+# uses to keep them out of duplicate-group logic.  Excluded here so a
+# multi-disc game's .m3u (and any .cue/.gdi sidecar) doesn't show up as its
+# own near-zero-size "candidate" alongside the actual disc files.
+_COMPANION_EXTENSIONS: frozenset[str] = frozenset({
+    "cue", "mds", "gdi", "sub", "sbi", "m3u",
+})
+
 # Matches the fs_stem derivation used in database.py's iter_roms_by_systems.
 _STEM_SQL = """
     CASE
@@ -213,33 +222,59 @@ def _collect_flat_candidates(
     candidates: dict[str, list[tuple[str, str, str, int, float]]],
     system_totals: dict[str, tuple[int, int]],
 ) -> None:
-    """One-file-per-game systems: join roms → romm_roms directly by filename/stem."""
+    """One-file-per-game systems: join roms → romm_roms by filename/stem, then
+    group by (system, title) so a multi-disc game's several .iso/.chd/.cso
+    files collapse into one item with a summed size, instead of one row per
+    disc.  Companion files (.m3u, .cue, .gdi, ...) are excluded entirely —
+    they aren't game data and would otherwise show up as their own
+    near-zero-size "candidate".
+
+    ROMM matches each disc file independently (and even the .m3u, when
+    present, as yet another separate romm_roms record) but reports the same
+    rating for all of them — so the first match found in the group is used
+    as the representative for classification.
+    """
     placeholders = ",".join("?" * len(flat_systems))
     rows = db.fetch_all(
         f"""
-        SELECT r.system, r.title, r.filename, r.size,
+        SELECT r.system, r.title, r.filename, r.extension, r.size,
                rr.romm_id, rr.is_identified, rr.total_rating
         FROM roms r
         LEFT JOIN romm_roms rr
             ON rr.canonical_system = r.system
             AND (rr.fs_name = r.filename OR rr.fs_stem = {_STEM_SQL})
         WHERE r.system IN ({placeholders})
-          AND r.size >= ?
         """,
-        tuple(flat_systems) + (min_size_bytes,),
+        tuple(flat_systems),
     )
 
+    groups: dict[tuple[str, str], dict[str, object]] = {}
     for row in rows:
-        sys_name = row["system"]
-        tf, ts = system_totals.get(sys_name, (0, 0))
-        system_totals[sys_name] = (tf + 1, ts + int(row["size"] or 0))
+        if str(row["extension"] or "").lower() in _COMPANION_EXTENSIONS:
+            continue
+        key = (str(row["system"]), str(row["title"]))
+        g = groups.setdefault(key, {"size": 0, "filenames": [], "info": None})
+        g["size"] = int(g["size"]) + int(row["size"] or 0)  # type: ignore[arg-type]
+        g["filenames"].append(str(row["filename"]))  # type: ignore[union-attr]
+        if g["info"] is None and row["romm_id"] is not None:
+            g["info"] = (row["romm_id"], row["is_identified"], row["total_rating"])
 
-        result = _classify(row["romm_id"], row["is_identified"], row["total_rating"], threshold, top)
+    for (sys_name, title), g in groups.items():
+        size = int(g["size"])  # type: ignore[arg-type]
+        if size < min_size_bytes:
+            continue
+
+        tf, ts = system_totals.get(sys_name, (0, 0))
+        system_totals[sys_name] = (tf + 1, ts + size)
+
+        filenames = g["filenames"]  # type: ignore[assignment]
+        file_label = filenames[0] if len(filenames) == 1 else f"{len(filenames)} files (multi-disc)"
+
+        romm_id, is_identified, total_rating = g["info"] if g["info"] else (None, None, None)  # type: ignore[misc]
+        result = _classify(romm_id, is_identified, total_rating, threshold, top)
         if result is not None:
             reason, sort_value = result
-            candidates.setdefault(sys_name, []).append(
-                (reason, str(row["title"]), str(row["filename"]), int(row["size"] or 0), sort_value)
-            )
+            candidates.setdefault(sys_name, []).append((reason, title, file_label, size, sort_value))
 
 
 def _collect_folder_candidates(

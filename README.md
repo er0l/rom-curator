@@ -1228,6 +1228,14 @@ actually worth keeping or prioritising for a device build.
 
 Both modes are capped at `--limit` per system (default 25).
 
+**Multi-disc games** on flat (non-folder-based) systems are grouped by title
+so a game's `.iso`/`.chd`/`.cso` disc files are shown as one item with a
+combined size ("2 files (multi-disc)"), not one row per disc. Companion
+files (`.m3u`, `.cue`, `.gdi`, `.sub`, `.sbi`, `.mds`) are excluded entirely
+— ROMM matches each disc and the `.m3u` playlist as separate records with
+the same rating, which would otherwise pollute the list with near-zero-size
+duplicate "games".
+
 **Folder-based systems** (switch, scummvm, dos, dreamcast, saturn, windows,
 megacd) are supported — each game's subfolder (ROM + updates/DLC) is grouped
 and summed as one item, and matched against ROMM by folder/title name rather
