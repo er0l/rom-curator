@@ -1,11 +1,13 @@
-"""Curation report — surface low-value ROMs by size using cached ROMM/IGDB metadata.
+"""Curation report — surface low-value or top-rated ROMs using cached ROMM/IGDB metadata.
 
-Read-only.  Helps shrink a large archive by ranking candidates for removal
-(unidentified by ROMM, or identified with a low IGDB rating) largest-first per
-system, so review effort goes to the files that actually recover space.
+Read-only.  Default mode helps shrink a large archive by ranking removal
+candidates (unidentified by ROMM, or identified with a low IGDB rating)
+largest-first per system.  ``--top`` flips this around to surface the
+best-rated games instead, sorted highest-rated first.
 
-Not an auto-delete list: IGDB rating reflects crowd opinion, not the user's,
-and will happily flag niche/import-only titles alongside genuine filler.
+Neither mode is an auto-delete/auto-keep list: IGDB rating reflects crowd
+opinion, not the user's, and will happily flag niche/import-only titles
+alongside genuine filler (or miss a beloved cult game that never got votes).
 """
 
 from __future__ import annotations
@@ -30,9 +32,9 @@ except ImportError:  # pragma: no cover
 
 
 # Arcade/MAME systems have essentially no ROMM/IGDB coverage per-file (MAME
-# romsets aren't catalogued individually), so "no ROMM match" there is noise,
-# not a low-value signal.  Excluded from the default (--systems-less) run;
-# pass --systems explicitly to include them anyway.
+# romsets aren't catalogued individually), so results there are mostly noise
+# in either mode.  Excluded from the default (--systems-less) run; pass
+# --systems explicitly to include them anyway.
 _LOW_SIGNAL_SYSTEMS: frozenset[str] = frozenset({
     "arcade", "mame", "mame2003-plus", "cps1", "cps2", "cps3",
     "neogeo", "naomi", "naomi2", "atomiswave",
@@ -55,9 +57,10 @@ def run_curate_report(
     *,
     mappings: dict[str, dict[str, object]] | None = None,
     systems: list[str] | None = None,
-    rating_threshold: float = 50.0,
+    rating_threshold: float | None = None,
     limit_per_system: int = 25,
     min_size_mb: float = 0.0,
+    top: bool = False,
 ) -> None:
     paths = config.get("paths", {})
     if not isinstance(paths, dict):
@@ -67,12 +70,16 @@ def run_curate_report(
     if not database_path.exists():
         raise FileNotFoundError(f"Inventory database does not exist: {database_path}")
 
-    # Folder-based systems (switch, scummvm, dos, windows, megacd) store a
-    # game as multiple files under one subfolder.  They're supported here by
-    # grouping files per subfolder (mirrors exporter.py's _folder_group_key)
-    # and matching ROMM by folder/title name rather than raw filename —
-    # ROMM's fs_name for these systems is the game folder name, not a
-    # per-file name (see gen_gamelist.py's `rr.fs_stem = r.title` match).
+    # Default threshold differs by mode: below 50 is "low value"; at/above 80
+    # is "top rated".  Either can be overridden with --rating-threshold.
+    threshold = rating_threshold if rating_threshold is not None else (80.0 if top else 50.0)
+
+    # Folder-based systems (switch, scummvm, dos, windows, megacd, dreamcast,
+    # saturn) store a game as multiple files under one subfolder.  They're
+    # supported here by grouping files per subfolder (mirrors exporter.py's
+    # _folder_group_key) and matching ROMM by folder/title name rather than
+    # raw filename — ROMM's fs_name for these systems is the game folder
+    # name, not a per-file name (see gen_gamelist.py's `rr.fs_stem = r.title`).
     folder_based: frozenset[str] = frozenset(
         s for s, meta in (mappings or {}).items()
         if isinstance(meta, dict) and meta.get("folder_based")
@@ -96,7 +103,8 @@ def run_curate_report(
             low_signal_included = []
             low_signal_skipped = sorted(all_systems & _LOW_SIGNAL_SYSTEMS)
 
-        _print_heading(f"Curate Report: {database_path}", console)
+        heading = "Top Rated Report" if top else "Curate Report"
+        _print_heading(f"{heading}: {database_path}", console)
         if low_signal_skipped:
             _print_line(
                 f"Skipped (low ROMM/IGDB coverage, pass --systems to force): "
@@ -106,7 +114,7 @@ def run_curate_report(
         if low_signal_included:
             _print_line(
                 f"Note: low ROMM/IGDB coverage for {', '.join(low_signal_included)} "
-                f"— expect mostly 'no ROMM match' noise there",
+                f"— expect few or no results there",
                 console,
             )
 
@@ -123,21 +131,24 @@ def run_curate_report(
             _print_line("No systems to analyse.", console)
             return
 
-        candidates: dict[str, list[tuple[str, str, str, int]]] = {}
+        # Each candidate tuple: (reason, title, file_label, size, sort_value)
+        # sort_value is size in low-value mode, rating in top mode.
+        candidates: dict[str, list[tuple[str, str, str, int, float]]] = {}
         system_totals: dict[str, tuple[int, int]] = {}
 
         if flat_systems:
-            _collect_flat_candidates(db, flat_systems, rating_threshold, min_size_bytes, candidates, system_totals)
+            _collect_flat_candidates(db, flat_systems, threshold, min_size_bytes, top, candidates, system_totals)
 
         for sys_name in folder_systems:
-            _collect_folder_candidates(db, sys_name, rating_threshold, min_size_bytes, candidates, system_totals)
+            _collect_folder_candidates(db, sys_name, threshold, min_size_bytes, top, candidates, system_totals)
 
         grand_candidate_count = 0
         grand_candidate_size = 0
         grand_total_size = 0
 
+        sort_index = 4 if top else 3  # top: sort by rating; low-value: sort by size
         for sys_name in sorted(candidates):
-            items = sorted(candidates[sys_name], key=lambda t: t[3], reverse=True)
+            items = sorted(candidates[sys_name], key=lambda t: t[sort_index], reverse=True)
             total_files, total_size = system_totals.get(sys_name, (0, 0))
             cand_count = len(items)
             cand_size = sum(t[3] for t in items)
@@ -146,13 +157,14 @@ def run_curate_report(
             grand_candidate_size += cand_size
             grand_total_size += total_size
 
+            noun = "top-rated" if top else "candidate"
             _print_table(
-                f"{sys_name}  —  {cand_count}/{total_files} candidate(s), "
+                f"{sys_name}  —  {cand_count}/{total_files} {noun}(s), "
                 f"{_format_bytes(cand_size)} ({_format_percent(cand_size, total_size)} of system size)",
                 ["Size", "Reason", "Title", "File"],
                 [
                     (_format_bytes(size), reason, title, file_label)
-                    for reason, title, file_label, size in items[:limit_per_system]
+                    for reason, title, file_label, size, _sort in items[:limit_per_system]
                 ],
                 console,
             )
@@ -163,28 +175,42 @@ def run_curate_report(
                 )
 
         _print_line("", console)
-        _print_line(
-            f"Total candidates: {grand_candidate_count} item(s), "
-            f"{_format_bytes(grand_candidate_size)} potential savings "
-            f"({_format_percent(grand_candidate_size, grand_total_size)} of scanned systems)",
-            console,
-        )
-        _print_line(
-            "Review list, not an auto-delete list — IGDB rating reflects crowd "
-            "opinion, not yours.  Move entries you agree with to the recycle bin "
-            "manually, or with a future batch tool.",
-            console,
-        )
+        if top:
+            _print_line(
+                f"Total top-rated: {grand_candidate_count} item(s), "
+                f"{_format_bytes(grand_candidate_size)} "
+                f"({_format_percent(grand_candidate_size, grand_total_size)} of scanned systems)",
+                console,
+            )
+            _print_line(
+                "Games rated ≥ this threshold by IGDB — a starting point for what's "
+                "worth keeping/prioritising, not a verdict on everything else.",
+                console,
+            )
+        else:
+            _print_line(
+                f"Total candidates: {grand_candidate_count} item(s), "
+                f"{_format_bytes(grand_candidate_size)} potential savings "
+                f"({_format_percent(grand_candidate_size, grand_total_size)} of scanned systems)",
+                console,
+            )
+            _print_line(
+                "Review list, not an auto-delete list — IGDB rating reflects crowd "
+                "opinion, not yours.  Move entries you agree with to the recycle bin "
+                "manually, or with a future batch tool.",
+                console,
+            )
 
-    _save_report(console, reports_root, "curate-report")
+    _save_report(console, reports_root, "top-rated-report" if top else "curate-report")
 
 
 def _collect_flat_candidates(
     db: InventoryDatabase,
     flat_systems: list[str],
-    rating_threshold: float,
+    threshold: float,
     min_size_bytes: int,
-    candidates: dict[str, list[tuple[str, str, str, int]]],
+    top: bool,
+    candidates: dict[str, list[tuple[str, str, str, int, float]]],
     system_totals: dict[str, tuple[int, int]],
 ) -> None:
     """One-file-per-game systems: join roms → romm_roms directly by filename/stem."""
@@ -208,19 +234,21 @@ def _collect_flat_candidates(
         tf, ts = system_totals.get(sys_name, (0, 0))
         system_totals[sys_name] = (tf + 1, ts + int(row["size"] or 0))
 
-        reason = _classify(row["romm_id"], row["is_identified"], row["total_rating"], rating_threshold)
-        if reason is not None:
+        result = _classify(row["romm_id"], row["is_identified"], row["total_rating"], threshold, top)
+        if result is not None:
+            reason, sort_value = result
             candidates.setdefault(sys_name, []).append(
-                (reason, str(row["title"]), str(row["filename"]), int(row["size"] or 0))
+                (reason, str(row["title"]), str(row["filename"]), int(row["size"] or 0), sort_value)
             )
 
 
 def _collect_folder_candidates(
     db: InventoryDatabase,
     system: str,
-    rating_threshold: float,
+    threshold: float,
     min_size_bytes: int,
-    candidates: dict[str, list[tuple[str, str, str, int]]],
+    top: bool,
+    candidates: dict[str, list[tuple[str, str, str, int, float]]],
     system_totals: dict[str, tuple[int, int]],
 ) -> None:
     """Folder-based systems: group files per game subfolder, match ROMM by folder/title name.
@@ -275,9 +303,10 @@ def _collect_folder_candidates(
                     break
 
         romm_id, is_identified, total_rating = info if info is not None else (None, None, None)
-        reason = _classify(romm_id, is_identified, total_rating, rating_threshold)
-        if reason is not None:
-            candidates.setdefault(system, []).append((reason, title, key, size))
+        result = _classify(romm_id, is_identified, total_rating, threshold, top)
+        if result is not None:
+            reason, sort_value = result
+            candidates.setdefault(system, []).append((reason, title, key, size, sort_value))
 
     system_totals[system] = (total_files, total_size)
 
@@ -286,20 +315,43 @@ def _classify(
     romm_id: object,
     is_identified: object,
     total_rating: object,
-    rating_threshold: float,
-) -> str | None:
-    """Return a short reason string if this ROM/game is a curation candidate, else None."""
+    threshold: float,
+    top: bool,
+) -> tuple[str, float] | None:
+    """Return (reason, sort_value) if this ROM/game matches the requested mode, else None.
+
+    Low-value mode (default): flags ROMs with no ROMM match, ROMM-unidentified
+    ROMs, or identified ROMs with a real rating below *threshold*.  The caller
+    sorts by size in this mode, not sort_value — it's set to the rating when
+    available, 0.0 otherwise, and is unused for ordering.
+
+    Top mode: flags only identified ROMs with a real rating at/above
+    *threshold*.  sort_value is the rating, used to sort highest-first.
+    """
+    if top:
+        if romm_id is None:
+            return None
+        if is_identified is not None and not is_identified:
+            return None
+        if total_rating is None:
+            return None
+        rating = float(total_rating)
+        # total_rating == 0 is ROMM's "no votes yet" placeholder — never "top".
+        if rating <= 0 or rating < threshold:
+            return None
+        return (f"rated {rating:.0f}", rating)
+
     if romm_id is None:
-        return "no ROMM match"
+        return ("no ROMM match", 0.0)
 
     if is_identified is not None and not is_identified:
-        return "unidentified"
+        return ("unidentified", 0.0)
 
     if total_rating is not None:
-        # total_rating == 0 is ROMM's "no votes yet" placeholder — not a real low score.
         rating = float(total_rating)
-        if 0 < rating < rating_threshold:
-            return f"low rating ({rating:.0f})"
+        # total_rating == 0 is ROMM's "no votes yet" placeholder — not a real low score.
+        if 0 < rating < threshold:
+            return (f"low rating ({rating:.0f})", rating)
 
     return None
 

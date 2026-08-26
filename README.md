@@ -816,6 +816,8 @@ python3 romcurator.py compat-import *.xlsx --chip rk3326
 python3 romcurator.py curate-report
 python3 romcurator.py curate-report --systems ps2,psp,switch
 python3 romcurator.py curate-report --rating-threshold 60 --limit 50
+python3 romcurator.py curate-report --top
+python3 romcurator.py curate-report --top --systems switch --limit 50
 python3 romcurator.py zip-check
 python3 romcurator.py zip-check --systems gb,gbc,gba
 python3 romcurator.py zip-check --verbose
@@ -1194,17 +1196,21 @@ Disc naming patterns recognised by the parser:
 
 #### curate-report
 
-Surface low-value ROMs by size using cached ROMM/IGDB metadata, to help
-shrink a large archive. **Read-only — no files are moved or modified.**
+Surface low-value ROMs by size — or, with `--top`, best-rated games — using
+cached ROMM/IGDB metadata. **Read-only — no files are moved or modified.**
 
 ```bash
-python3 romcurator.py curate-report                        # full sweep
+python3 romcurator.py curate-report                        # full sweep, low-value mode
 python3 romcurator.py curate-report --systems ps2,psp       # scoped, faster
 python3 romcurator.py curate-report --rating-threshold 60 --limit 50
+
+python3 romcurator.py curate-report --top                   # best-rated games instead
+python3 romcurator.py curate-report --top --systems switch --limit 50
+python3 romcurator.py curate-report --top --rating-threshold 90   # only the very best
 ```
 
-For each system, every ROM/game is checked against `romm_roms` and flagged as
-a candidate when:
+For each system, every ROM/game is checked against `romm_roms`. Default mode
+flags removal candidates:
 
 | Reason | Meaning |
 |---|---|
@@ -1212,8 +1218,15 @@ a candidate when:
 | `unidentified` | ROMM has a record but could not match it to IGDB metadata |
 | `low rating (N)` | Identified with a real IGDB `total_rating` below `--rating-threshold` (default 50). `total_rating = 0` (ROMM's "no votes yet" placeholder) is never treated as a low score. |
 
-Candidates are listed largest-first per system (capped at `--limit`, default
-25) with a per-system subtotal and a grand total of potential space savings.
+Candidates are listed largest-first per system with a per-system subtotal and
+a grand total of potential space savings.
+
+`--top` flips the criteria and the sort order: only ROMs ROMM identified with
+a real `total_rating` at or above `--rating-threshold` (default **80** in
+this mode) are shown, sorted highest-rated first — a quick way to see what's
+actually worth keeping or prioritising for a device build.
+
+Both modes are capped at `--limit` per system (default 25).
 
 **Folder-based systems** (switch, scummvm, dos, dreamcast, saturn, windows,
 megacd) are supported — each game's subfolder (ROM + updates/DLC) is grouped
@@ -1223,15 +1236,16 @@ than raw filename, since that's how ROMM stores `fs_name` for these platforms
 
 **Arcade/MAME sub-systems** (`arcade`, `mame2003-plus`, `cps1`, `cps2`, `cps3`,
 `neogeo`, `naomi`, `naomi2`, `atomiswave`) are excluded from the default
-full sweep — MAME romsets have essentially no per-file ROMM/IGDB coverage, so
-every ROM would show `no ROMM match` regardless of actual quality. Pass
-`--systems arcade` explicitly to include them anyway (expect mostly noise).
+full sweep in both modes — MAME romsets have essentially no per-file
+ROMM/IGDB coverage. Pass `--systems arcade` explicitly to include them anyway
+(expect mostly empty results).
 
-This is a **review list, not an auto-delete list** — IGDB rating reflects
-crowd opinion, not yours, and will flag genuinely good niche/import-only
-titles right alongside actual filler. Move entries you agree with to the
-recycle bin manually (or with `dedup-roms`/`zip-roms` workflows where
-applicable) after reviewing.
+Neither mode is a verdict — IGDB rating reflects crowd opinion, not yours.
+Low-value mode will flag genuinely good niche/import-only titles right
+alongside actual filler; top mode can miss a beloved cult game that never
+accumulated IGDB votes. Move entries you agree with to the recycle bin
+manually (or with `dedup-roms`/`zip-roms` workflows where applicable) after
+reviewing.
 
 Like `report`, output is saved to a timestamped file under `paths.reports`
 when configured.
